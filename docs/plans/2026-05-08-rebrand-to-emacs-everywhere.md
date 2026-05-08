@@ -420,7 +420,7 @@ This project began as a fork of [`Klojer/obsidian-emacs-text-editor`](https://gi
 - **In-input bindings.** The same keys work in plain `<input>`, `<textarea>`, and `[contenteditable]` elements: search bars, the quick switcher, the command palette, the file rename dialog, plugin settings panels, the frontmatter property editor, and modal text inputs from other plugins.
 - **Shared kill ring.** A single kill ring (default size 120, matching Emacs) is shared across the editor and in-input layers. Repeated `C-k` / `M-d` / `M-Backspace` extends the previous kill, just like in Emacs and readline.
 - **Mark and region.** `C-Space` sets the mark; movement commands extend the region; `C-w` / `M-w` cut/copy; `C-g` cancels.
-- **Multi-chord prefixes.** `C-x C-s` (save), `C-x C-f` (file finder), `C-x b` (buffer switcher), `C-x o` (other window), and more. (Requires the [Sequence Hotkeys](https://github.com/moolmanruan/obsidian-sequence-hotkeys) plugin; see Optional plugins below.)
+- **Multi-chord prefixes.** `C-x C-s` (save), `C-x C-f` (file finder), `C-x b` (buffer switcher), `C-x o` (other window), and more. Handled by an in-house dispatcher; no extra plugins required.
 - **Workspace aliases.** `M-x` opens the command palette, `C-s` opens search, etc.
 
 ## Install
@@ -444,7 +444,7 @@ Some bindings deliver a richer experience when paired with another plugin. The p
 
 | Plugin | Bindings affected | Fallback when absent |
 |---|---|---|
-| [Sequence Hotkeys](https://github.com/moolmanruan/obsidian-sequence-hotkeys) | All multi-chord (`C-x ...`) bindings | Bindings disabled (no native multi-chord support) |
+| (none for multi-chord) | Multi-chord uses our own `PrefixDispatcher` | n/a |
 | [Quick Switcher++](https://github.com/darlal/obsidian-switcher-plus) | `M-x`, `C-x C-f`, `C-x b` | Native `command-palette:open` and `switcher:open` |
 | [Cycle through panes](https://github.com/Yuichi-Aragi/cycle-through-panes) | `C-x o` | `workspace:next-tab` (cycles tabs, not panes) |
 
@@ -637,9 +637,7 @@ Expected: bindings work in the quick switcher input.
 
 - [ ] **Step 7: Manual smoke test — multi-chord (layer 3)**
 
-If the Sequence Hotkeys plugin is enabled, try `C-x C-s` (save). Expected: file saves, status bar reflects save.
-
-If Sequence Hotkeys is not enabled, skip this step (multi-chord requires it).
+Try `C-x C-s` (save). Expected: file saves, status bar reflects save. (No external plugin required; the in-house `PrefixDispatcher` handles all C-x sequences.)
 
 - [ ] **Step 8: Confirm no regressions**
 

@@ -82,7 +82,7 @@ The plugin runs in three conceptual layers:
 
 1. **In-editor bindings** (markdown editor) — registered via `addCommand` with `editorCallback`, hooks Obsidian's CodeMirror-backed `editor` API. Original plugin behavior.
 2. **In-input bindings** (vanilla `<input>` / `<textarea>` / `[contenteditable]`) — document-level keydown listener in capture phase. Filters by target element type, skips elements inside `.cm-editor`. Implements cursor movement, kill/yank, mark/region for plain DOM inputs.
-3. **Workspace bindings** — single-chord global aliases (M-x, C-s, etc.) registered as ordinary `addCommand` entries with `hotkeys`; multi-chord prefix maps (C-x C-s, C-x b, etc.) registered programmatically via the Sequence Hotkeys plugin's API when that plugin is enabled.
+3. **Workspace bindings** — single-chord global aliases (M-x, C-s, etc.) registered as ordinary `addCommand` entries with `hotkeys`; multi-chord prefix maps (C-x C-s, C-x b, etc.) handled by an in-house `PrefixDispatcher` state machine that piggybacks on layer 2's capture-phase keydown listener. No third-party multi-chord plugin dependency.
 
 A single global kill ring is shared across layers 1 and 2.
 
@@ -109,7 +109,7 @@ Does a plugin provide a richer implementation?
 
 | Plugin | Bindings affected | Fallback when absent |
 |---|---|---|
-| `obsidian-sequence-hotkeys` | All multi-chord (C-x …) bindings | Bindings disabled (no native multi-chord support) |
+| (none for multi-chord) | Multi-chord uses our own `PrefixDispatcher` | n/a |
 | `darlal-switcher-plus` (Quick Switcher++) | M-x, C-x C-f, C-x b | `command-palette:open`, `switcher:open`, `switcher:open` respectively |
 | `cycle-through-panes` | C-x o | `workspace:next-tab` (imperfect — cycles tabs, not panes) |
 

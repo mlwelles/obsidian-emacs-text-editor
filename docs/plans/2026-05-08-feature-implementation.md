@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build Layer 2 (in-input bindings) and Layer 3 (workspace + multi-chord) on top of the modular `src/` tree produced by the refactor. Ship as `0.6.0`. Brings emacs/readline keybindings to every text-input surface in Obsidian — search bar, quick switcher, command palette, file rename, settings, frontmatter, plugin modals — and adds workspace-level commands (M-x, C-s, etc.) plus multi-chord prefix maps (C-x C-s, C-x b, etc.) when the optional Sequence Hotkeys plugin is enabled.
+**Goal:** Build Layer 2 (in-input bindings) and Layer 3 (workspace single-chord + in-house multi-chord) on top of the modular `src/` tree produced by the refactor. Ship as `0.6.0`. Brings emacs/readline keybindings to every text-input surface in Obsidian — search bar, quick switcher, command palette, file rename, settings, frontmatter, plugin modals — and adds workspace-level commands (M-x, C-s, etc.) plus multi-chord prefix maps (C-x C-s, C-x b, etc.) handled by our own dispatcher.
 
-**Architecture:** Three new logical layers, each landing in its own module. Soft-dependency framework comes first because Phase 3a depends on it. Layer 2 reuses the `KillRing` and `MarkState` from the refactor as a shared kill-ring/mark across editor and inputs. Layer 3a is ordinary `addCommand` registrations. Layer 3b is conditional registration via the Sequence Hotkeys plugin's API, dynamically toggled when that plugin is enabled or disabled.
+**Architecture:** Three new logical layers, each landing in its own module. Soft-dependency framework comes first because Phase 3a depends on it. Layer 2 reuses the `KillRing` and `MarkState` from the refactor as a shared kill-ring/mark across editor and inputs. Layer 3a is ordinary `addCommand` registrations resolved through the soft-deps framework where richer plugins exist. Layer 3b is an in-house prefix-chord state machine that piggybacks on the Layer-2 capture-phase keydown listener — no third-party multi-chord plugin dependency.
 
-**Tech Stack:** TypeScript (strict), esbuild, vitest. Obsidian Plugin API. DOM Selection / Range APIs (Layer 2 for `[contenteditable]`). Sequence Hotkeys plugin's runtime API (Layer 3b).
+**Tech Stack:** TypeScript (strict), esbuild, vitest. Obsidian Plugin API. DOM Selection / Range APIs (Layer 2 for `[contenteditable]`).
 
 **Test vault:** `~/Documents/Obsidian/blackbook`.
 
@@ -40,7 +40,9 @@ src/
 ├── workspace-bindings/
 │   └── single-chord.ts        # Phase 3a: M-x, C-s, C-r, M-%, C-g aliases
 ├── prefix-maps/
-│   └── multi-chord.ts         # Phase 4: Sequence Hotkeys integration
+│   ├── dispatcher.ts          # Phase 4: in-house prefix-chord state machine
+│   ├── dispatcher.test.ts
+│   └── bindings.ts            # Phase 4: PREFIX_BINDINGS table + emacs:* commands
 ├── collisions.ts              # Phase 5: documented collision map (data only)
 └── main.ts                    # modified: wire new modules
 ```
@@ -89,70 +91,30 @@ Expected: non-empty path ending in `.obsidian/plugins`.
 
 If any verification fails, stop.
 
-### Task V.2: Verify soft-dep plugin IDs and command IDs at runtime
+### Task V.2: Verify soft-dep plugin IDs and command IDs (DONE — 2026-05-08)
 
-**This task requires a live Obsidian install and is not subagent-executable.** A subagent dispatched to run this plan must stop here, surface the verification request to the user, and resume after the user has filled in `docs/plans/2026-05-08-soft-dep-runtime-ids.md`.
+Verified at brainstorm time against a live Obsidian install with all soft-deps installed and enabled. Recorded here for reference; no further action needed.
 
-The design doc references three soft-dep plugins by id: `obsidian-sequence-hotkeys`, `darlal-switcher-plus`, `cycle-through-panes`. These are the GitHub repo names. The actual runtime ids in `app.plugins.enabledPlugins` may differ. Same for command ids exposed by these plugins.
+| Soft-dep | Runtime plugin id | Manifest version | Notes |
+|---|---|---|---|
+| Quick Switcher++ | `darlal-switcher-plus` | 6.1.1 | Commands map cleanly; resolver-driven from Phase 3a |
+| Cycle through panes | `cycle-through-panes` | 1.4.0 | Manifest renamed to "Tab Switcher" (id unchanged) |
 
-**Files:** none
+**Switcher++ command IDs (verified):**
 
-- [ ] **Step 1: Open the test vault and install the three optional plugins**
+- M-x → `darlal-switcher-plus:switcher-plus:open-commands`
+- C-x C-f (find-file) → `darlal-switcher-plus:switcher-plus:open` (default file mode)
+- C-x b (switch-buffer) → `darlal-switcher-plus:switcher-plus:open-editors`
+- Bonus modes: `open-headings`, `open-symbols`, `open-related-items`, `open-vaults`, `open-workspaces`, `open-starred`
 
-In Obsidian, Settings → Community plugins → Browse → install:
-- "Sequence Hotkeys" by Roan Moolman
-- "Quick Switcher++" by Daniel
-- "Cycle through panes" (any of: by `Yuichi-Aragi`, `Quorafind`, etc.)
+**Cycle through panes command ID (verified):**
 
-Enable each.
+- C-x o → `cycle-through-panes:cycle-through-panes`
+- Reverse cycle (optional binding): `cycle-through-panes:cycle-through-panes-reverse`
 
-- [ ] **Step 2: Read the actual plugin IDs from runtime**
+**Multi-chord plugin (Sequence Hotkeys / leader-hotkeys): not used.** Phase 4 implements an in-house prefix-chord dispatcher; no soft-dep on either plugin. Both can coexist with this plugin without conflict (they handle different sequences than ours, and our capture-phase listener fires before either's listener).
 
-Open the developer console (Cmd-Option-I). Run:
-```js
-Array.from(app.plugins.enabledPlugins)
-```
-
-Expected output is an array of plugin ids. Note the exact strings for each of the three plugins.
-
-- [ ] **Step 3: List commands each plugin exposes**
-
-Still in the console, for each plugin id you noted, run:
-```js
-Object.keys(app.commands.commands).filter(id => id.startsWith("<plugin-id>:"))
-```
-
-Expected: list of command ids exposed by the plugin. Specifically note:
-- For Sequence Hotkeys: any `register-sequence` / `register-prefix` style commands. (The integration in Phase 4 may use the plugin's API directly via `app.plugins.plugins["<id>"].api` rather than commands; check both.)
-- For Switcher++: `command-palette` mode, `editors` mode, `find-file` / `open` style commands.
-- For Cycle through panes: cycle-pane / next-pane commands.
-
-- [ ] **Step 4: Record findings in a scratch note**
-
-Create `docs/plans/2026-05-08-soft-dep-runtime-ids.md` with the verified IDs:
-
-```markdown
-# Soft-dep runtime IDs (verified <date>)
-
-## Sequence Hotkeys
-- Plugin id: <verified value>
-- API access: app.plugins.plugins["<id>"]?.<api-shape>
-- Notes: <how to register a multi-chord prefix>
-
-## Quick Switcher++ (darlal-switcher-plus)
-- Plugin id: <verified value>
-- Commands used:
-  - <command-id-for-commands-mode>
-  - <command-id-for-editors-mode>
-  - <command-id-for-default-open>
-
-## Cycle through panes
-- Plugin id: <verified value>
-- Commands used:
-  - <command-id-for-cycle>
-```
-
-The Phase 1, 3a, 3b, and 4 tasks consume this file as the source of truth. **If you can't verify a plugin id or command, stop and ask the user for guidance — do not guess.**
+If a future user reports collisions between our in-house dispatcher and another multi-chord plugin's bindings, document and resolve case-by-case. No automatic deconfliction is planned.
 
 ---
 
@@ -509,45 +471,42 @@ plugin toggles, so users never need to reload Obsidian after enabling
 or disabling a soft-dep plugin."
 ```
 
-### Task 1.3: `known-plugins.ts` with typed handles for the three soft-deps
+### Task 1.3: `known-plugins.ts` with typed handles for the soft-dep plugins
 
 **Files:**
 - Create: `src/soft-deps/known-plugins.ts`
 
-This module is data only — no logic, no tests. It captures the verified plugin ids and command ids from Task V.2 in one place.
+Data-only module; captures the verified plugin and command IDs from Task V.2 in one place. No Sequence Hotkeys / leader-hotkeys entries — Phase 4 uses an in-house dispatcher.
 
 - [ ] **Step 1: Create `src/soft-deps/known-plugins.ts`**
-
-Use the verified ids from `docs/plans/2026-05-08-soft-dep-runtime-ids.md`. The skeleton:
 
 ```ts
 /**
  * Verified plugin and command IDs for the soft-deps in this project.
- * Source of truth: docs/plans/2026-05-08-soft-dep-runtime-ids.md (verified
- * against a live Obsidian install on <DATE>).
+ * Source of truth: docs/plans/2026-05-08-feature-implementation.md § Task V.2
+ * (verified against a live Obsidian install on 2026-05-08).
  *
  * Update this file whenever a soft-dep plugin renames a command or its
  * runtime id changes.
  */
 
-export const SEQUENCE_HOTKEYS = {
-	pluginId: "<verified-id>",
-	// API shape captured in src/prefix-maps/multi-chord.ts
-} as const;
-
 export const SWITCHER_PLUS = {
-	pluginId: "<verified-id>",
+	pluginId: "darlal-switcher-plus",
 	commands: {
-		commandsMode: "<verified-id>",
-		editorsMode: "<verified-id>",
-		fileMode: "<verified-id>",
+		// Switcher++ namespaces its own commands with a "switcher-plus:" prefix
+		// inside the plugin's own id, hence the doubled segments.
+		commandsMode: "darlal-switcher-plus:switcher-plus:open-commands",
+		editorsMode: "darlal-switcher-plus:switcher-plus:open-editors",
+		fileMode: "darlal-switcher-plus:switcher-plus:open",
 	},
 } as const;
 
 export const CYCLE_THROUGH_PANES = {
-	pluginId: "<verified-id>",
+	// Plugin manifest renamed to "Tab Switcher"; runtime id unchanged.
+	pluginId: "cycle-through-panes",
 	commands: {
-		cycle: "<verified-id>",
+		cycle: "cycle-through-panes:cycle-through-panes",
+		cycleReverse: "cycle-through-panes:cycle-through-panes-reverse",
 	},
 } as const;
 
@@ -557,6 +516,7 @@ export const NATIVE_FALLBACKS = {
 	editorSearch: "editor:open-search",
 	editorSearchReplace: "editor:open-search-replace",
 	editorSave: "editor:save-file",
+	editorRevealInExplorer: "file-explorer:reveal-active-file",
 	workspaceNextTab: "workspace:next-tab",
 	workspaceCloseActivePane: "workspace:close",
 	workspaceCloseOthers: "workspace:close-others",
@@ -569,10 +529,6 @@ export const NATIVE_FALLBACKS = {
 	appQuit: "app:quit",
 } as const;
 ```
-
-Replace every `<verified-id>` placeholder with the real value from Task V.2.
-
-**If a value cannot be verified, stop. Do not guess.**
 
 - [ ] **Step 2: Verify the file compiles**
 
@@ -588,10 +544,11 @@ Expected: success.
 git add src/soft-deps/known-plugins.ts
 git commit -m "feat(soft-deps): add typed handles for known soft-dep plugins
 
-Captures the runtime plugin IDs and command IDs for Sequence Hotkeys,
-Quick Switcher++, and Cycle through panes, plus the native Obsidian
-fallbacks. Verified against a live install per
-docs/plans/2026-05-08-soft-dep-runtime-ids.md."
+Captures verified runtime plugin IDs and command IDs for Quick
+Switcher++ and Cycle through panes, plus native Obsidian fallbacks.
+No multi-chord-plugin entries — Phase 4 implements an in-house
+prefix-chord dispatcher rather than depending on Sequence Hotkeys
+or leader-hotkeys."
 ```
 
 ### Task 1.4: Wire the soft-deps foundation into `main.ts`
@@ -1897,259 +1854,672 @@ blurs focused element)."
 
 ---
 
-## Phase 4 — Layer 3b: multi-chord prefix maps
+## Phase 4 — Layer 3b: in-house multi-chord prefix dispatcher
 
-`C-x` prefix sequences via the Sequence Hotkeys plugin's API. Hard requires Sequence Hotkeys; bindings are silently inactive when it is disabled.
+`C-x` prefix sequences handled by an in-house state machine. No third-party plugin dependency. Piggybacks on the Phase-2 capture-phase keydown listener so it gets first crack at keys, before any Obsidian or other-plugin handler.
 
-### Task 4.1: Sequence Hotkeys API integration
+### Task 4.1: `PrefixDispatcher` state machine
 
 **Files:**
-- Create: `src/prefix-maps/multi-chord.ts`
-- Modify: `src/main.ts`
+- Create: `src/prefix-maps/dispatcher.ts`
+- Create: `src/prefix-maps/dispatcher.test.ts`
 
-The Sequence Hotkeys plugin exposes a runtime API on `app.plugins.plugins["<id>"]`. The exact shape of the API was captured in Task V.2; this task consumes it.
+The state machine. Inputs: keyboard events. State: `idle`, `awaiting`. When a registered prefix chord is matched in `idle`, transitions to `awaiting` with a sub-binding list. Subsequent chord either leaves the dispatcher (matched leaf), descends into a nested sub-prefix (e.g., `C-x 5 0` — `C-x` then `5` is a sub-prefix, then `0`), or cancels.
 
-- [ ] **Step 1: Document the Sequence Hotkeys API shape**
+Cancel triggers: `C-g`, `Escape`, timeout (default 5s), unmatched chord.
 
-Open `docs/plans/2026-05-08-soft-dep-runtime-ids.md`. The "Sequence Hotkeys API access" section should describe how to register a multi-chord. Common patterns:
-
-- **Pattern A:** the plugin exposes `addSequence(sequence: string[], commandId: string)` directly on the plugin instance.
-- **Pattern B:** the plugin exposes its API at `app.plugins.plugins[id].api.addSequence(...)`.
-- **Pattern C:** the plugin reads sequences from a settings file; programmatic registration is unsupported.
-
-**If Pattern C, this entire phase is unimplementable as designed.** Stop and reconsider. Alternatives:
-- Drop multi-chord from v0.6.0; ship Layer 2 + Layer 3a only.
-- Switch to a different multi-chord library or write our own dispatcher (much larger effort).
-
-Assuming Pattern A or B applies, proceed.
-
-- [ ] **Step 2: Create `src/prefix-maps/multi-chord.ts`**
+- [ ] **Step 1: Write `src/prefix-maps/dispatcher.test.ts` (failing first)**
 
 ```ts
-import type {App, Plugin} from "obsidian";
-import type {CommandResolver} from "../soft-deps/command-resolver";
-import {SEQUENCE_HOTKEYS, SWITCHER_PLUS, CYCLE_THROUGH_PANES, NATIVE_FALLBACKS} from "../soft-deps/known-plugins";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {PrefixDispatcher, type PrefixMap} from "./dispatcher";
 
-interface SequenceHotkeysApi {
-	// Adjust signature to match verified API from Task V.2.
-	registerSequence(sequence: string[], action: () => void): () => void; // returns unregister
+const cx = {ctrl: true, key: "x"} as const;
+const cs = {ctrl: true, key: "s"} as const;
+const cf = {ctrl: true, key: "f"} as const;
+const cg = {ctrl: true, key: "g"} as const;
+const k5 = {key: "5"} as const;
+const k0 = {key: "0"} as const;
+const kb = {key: "b"} as const;
+
+const fakeLogger = {debug: vi.fn()};
+
+function makeEvent(spec: {ctrl?: boolean; alt?: boolean; shift?: boolean; meta?: boolean; key: string}): KeyboardEvent {
+	return new KeyboardEvent("keydown", {
+		ctrlKey: spec.ctrl ?? false,
+		altKey: spec.alt ?? false,
+		shiftKey: spec.shift ?? false,
+		metaKey: spec.meta ?? false,
+		key: spec.key,
+	});
 }
 
-interface PrefixBinding {
-	sequence: string[]; // e.g., ["C-x", "C-s"]
-	preferred?: {pluginId: string; commandId: string};
-	fallback: {commandId: string};
-	description: string;
+describe("PrefixDispatcher", () => {
+	let saveAction: ReturnType<typeof vi.fn>;
+	let findFileAction: ReturnType<typeof vi.fn>;
+	let switchBufferAction: ReturnType<typeof vi.fn>;
+	let closeWindowAction: ReturnType<typeof vi.fn>;
+	let dispatcher: PrefixDispatcher;
+
+	beforeEach(() => {
+		saveAction = vi.fn();
+		findFileAction = vi.fn();
+		switchBufferAction = vi.fn();
+		closeWindowAction = vi.fn();
+		const maps: PrefixMap[] = [
+			{
+				prefix: cx,
+				bindings: [
+					{chord: cs, action: saveAction},
+					{chord: cf, action: findFileAction},
+					{chord: kb, action: switchBufferAction},
+					{
+						chord: k5,
+						subBindings: [{chord: k0, action: closeWindowAction}],
+					},
+				],
+			},
+		];
+		dispatcher = new PrefixDispatcher(maps, fakeLogger, {timeoutMs: 5000});
+	});
+
+	it("returns false for events that don't match any prefix in idle state", () => {
+		const consumed = dispatcher.handle(makeEvent({key: "a"}));
+		expect(consumed).toBe(false);
+	});
+
+	it("returns true and switches to awaiting on prefix match", () => {
+		const consumed = dispatcher.handle(makeEvent(cx));
+		expect(consumed).toBe(true);
+		expect(saveAction).not.toHaveBeenCalled();
+	});
+
+	it("dispatches the matched leaf action on second chord", () => {
+		dispatcher.handle(makeEvent(cx));
+		const consumed = dispatcher.handle(makeEvent(cs));
+		expect(consumed).toBe(true);
+		expect(saveAction).toHaveBeenCalledTimes(1);
+	});
+
+	it("returns to idle after dispatching a leaf", () => {
+		dispatcher.handle(makeEvent(cx));
+		dispatcher.handle(makeEvent(cs));
+		// Now in idle. Next prefix should be accepted.
+		expect(dispatcher.handle(makeEvent(cx))).toBe(true);
+	});
+
+	it("descends into a sub-prefix and dispatches on third chord", () => {
+		dispatcher.handle(makeEvent(cx));
+		expect(dispatcher.handle(makeEvent(k5))).toBe(true);
+		expect(closeWindowAction).not.toHaveBeenCalled();
+		expect(dispatcher.handle(makeEvent(k0))).toBe(true);
+		expect(closeWindowAction).toHaveBeenCalledTimes(1);
+	});
+
+	it("cancels on C-g and returns to idle", () => {
+		dispatcher.handle(makeEvent(cx));
+		const consumed = dispatcher.handle(makeEvent(cg));
+		expect(consumed).toBe(true);
+		expect(saveAction).not.toHaveBeenCalled();
+		// Idle: next non-prefix should pass through
+		expect(dispatcher.handle(makeEvent({key: "a"}))).toBe(false);
+	});
+
+	it("cancels on Escape and returns to idle", () => {
+		dispatcher.handle(makeEvent(cx));
+		const consumed = dispatcher.handle(makeEvent({key: "Escape"}));
+		expect(consumed).toBe(true);
+		expect(dispatcher.handle(makeEvent({key: "a"}))).toBe(false);
+	});
+
+	it("ignores unmatched second chord and returns to idle (consumes the chord to avoid stray inserts)", () => {
+		dispatcher.handle(makeEvent(cx));
+		const consumed = dispatcher.handle(makeEvent({key: "z"})); // no binding
+		expect(consumed).toBe(true);
+		expect(dispatcher.handle(makeEvent({key: "a"}))).toBe(false);
+	});
+
+	it("re-press of prefix while awaiting cancels-and-restarts", () => {
+		dispatcher.handle(makeEvent(cx));
+		// Press C-x again — restart; still awaiting at top level.
+		const consumed = dispatcher.handle(makeEvent(cx));
+		expect(consumed).toBe(true);
+		// Now press s once — should dispatch save once.
+		dispatcher.handle(makeEvent(cs));
+		expect(saveAction).toHaveBeenCalledTimes(1);
+	});
+
+	it("cancels via timeout if user pauses too long", () => {
+		vi.useFakeTimers();
+		try {
+			const d = new PrefixDispatcher(
+				[
+					{
+						prefix: cx,
+						bindings: [{chord: cs, action: saveAction}],
+					},
+				],
+				fakeLogger,
+				{timeoutMs: 100},
+			);
+			d.handle(makeEvent(cx));
+			vi.advanceTimersByTime(150);
+			// After timeout, dispatcher is idle; next non-prefix passes through.
+			expect(d.handle(makeEvent({key: "a"}))).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("cancel() resets state from any awaiting position", () => {
+		dispatcher.handle(makeEvent(cx));
+		dispatcher.handle(makeEvent(k5)); // descended into sub-prefix
+		dispatcher.cancel();
+		expect(dispatcher.handle(makeEvent({key: "a"}))).toBe(false);
+		expect(closeWindowAction).not.toHaveBeenCalled();
+	});
+});
+```
+
+- [ ] **Step 2: Run, verify failing**
+
+```sh
+npm test -- dispatcher
+```
+
+Expected: 11 tests fail with "Cannot find module './dispatcher'".
+
+- [ ] **Step 3: Implement `src/prefix-maps/dispatcher.ts`**
+
+```ts
+import type {Logger} from "../log";
+
+export interface ChordSpec {
+	ctrl?: boolean;
+	alt?: boolean;
+	shift?: boolean;
+	meta?: boolean;
+	key: string;
 }
 
-const PREFIX_BINDINGS: PrefixBinding[] = [
-	{
-		sequence: ["C-x", "C-s"],
-		fallback: {commandId: NATIVE_FALLBACKS.editorSave},
-		description: "save-buffer",
-	},
-	{
-		sequence: ["C-x", "C-f"],
-		preferred: {pluginId: SWITCHER_PLUS.pluginId, commandId: SWITCHER_PLUS.commands.fileMode},
-		fallback: {commandId: "switcher:open"},
-		description: "find-file",
-	},
-	{
-		sequence: ["C-x", "d"],
-		fallback: {commandId: "file-explorer:reveal-active-file"},
-		description: "dired (reveal active file in explorer)",
-	},
-	{
-		sequence: ["C-x", "b"],
-		preferred: {pluginId: SWITCHER_PLUS.pluginId, commandId: SWITCHER_PLUS.commands.editorsMode},
-		fallback: {commandId: "switcher:open"},
-		description: "switch-to-buffer",
-	},
-	// Note: C-x C-b (list-buffers / recent-files panel) is intentionally
-	// dropped. Obsidian's recent-files functionality has no stable
-	// command id; users wanting this can install the "Recent Files"
-	// community plugin and bind it manually.
-	{
-		sequence: ["C-x", "k"],
-		fallback: {commandId: NATIVE_FALLBACKS.workspaceCloseActivePane},
-		description: "kill-buffer",
-	},
-	{
-		sequence: ["C-x", "0"],
-		fallback: {commandId: NATIVE_FALLBACKS.workspaceCloseActivePane},
-		description: "delete-window",
-	},
-	{
-		sequence: ["C-x", "1"],
-		fallback: {commandId: NATIVE_FALLBACKS.workspaceCloseOthers},
-		description: "delete-other-windows",
-	},
-	{
-		sequence: ["C-x", "2"],
-		fallback: {commandId: NATIVE_FALLBACKS.workspaceSplitHorizontal},
-		description: "split-window-below",
-	},
-	{
-		sequence: ["C-x", "3"],
-		fallback: {commandId: NATIVE_FALLBACKS.workspaceSplitVertical},
-		description: "split-window-right",
-	},
-	{
-		sequence: ["C-x", "o"],
-		preferred: {pluginId: CYCLE_THROUGH_PANES.pluginId, commandId: CYCLE_THROUGH_PANES.commands.cycle},
-		fallback: {commandId: NATIVE_FALLBACKS.workspaceNextTab},
-		description: "other-window",
-	},
-	{
-		sequence: ["C-x", "h"],
-		fallback: {commandId: NATIVE_FALLBACKS.editorSelectAll},
-		description: "mark-whole-buffer",
-	},
-	{
-		sequence: ["C-x", "u"],
-		fallback: {commandId: NATIVE_FALLBACKS.editorUndo},
-		description: "undo",
-	},
-	{
-		sequence: ["C-x", "5", "2"],
-		fallback: {commandId: NATIVE_FALLBACKS.workspaceOpenNewWindow},
-		description: "make-frame (open new window)",
-	},
-	{
-		sequence: ["C-x", "5", "0"],
-		fallback: {commandId: NATIVE_FALLBACKS.workspaceCloseWindow},
-		description: "delete-frame (close window)",
-	},
-	{
-		sequence: ["C-x", "C-c"],
-		fallback: {commandId: NATIVE_FALLBACKS.appQuit},
-		description: "save-buffers-kill-terminal",
-	},
+export interface PrefixBinding {
+	chord: ChordSpec;
+	action?: () => void;
+	subBindings?: PrefixBinding[];
+}
+
+export interface PrefixMap {
+	prefix: ChordSpec;
+	bindings: PrefixBinding[];
+}
+
+export interface DispatcherOptions {
+	timeoutMs?: number;
+}
+
+const DEFAULT_TIMEOUT_MS = 5000;
+const CANCEL_KEYS: ChordSpec[] = [
+	{ctrl: true, key: "g"},
+	{key: "Escape"},
 ];
 
-export class MultiChordRegistry {
-	private unregisters: Array<() => void> = [];
-	private unsubResolver?: () => void;
+function chordMatches(event: KeyboardEvent, spec: ChordSpec): boolean {
+	const wantCtrl = !!spec.ctrl;
+	const wantAlt = !!spec.alt;
+	const wantShift = !!spec.shift;
+	const wantMeta = !!spec.meta;
+	if (event.ctrlKey !== wantCtrl) return false;
+	if (event.altKey !== wantAlt) return false;
+	if (event.shiftKey !== wantShift) return false;
+	if (event.metaKey !== wantMeta) return false;
+	return event.key === spec.key;
+}
+
+export class PrefixDispatcher {
+	private state: "idle" | "awaiting" = "idle";
+	private currentBindings: PrefixBinding[] = [];
+	private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+	private readonly timeoutMs: number;
 
 	constructor(
-		private readonly app: App,
-		private readonly plugin: Plugin,
-		private readonly resolver: CommandResolver,
-	) {}
-
-	enable(): void {
-		const api = this.getApi();
-		if (!api) {
-			return;
-		}
-		for (const binding of PREFIX_BINDINGS) {
-			this.registerOne(api, binding);
-		}
+		private readonly maps: PrefixMap[],
+		private readonly logger: Logger,
+		options: DispatcherOptions = {},
+	) {
+		this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	}
 
-	disable(): void {
-		this.unregisters.forEach(u => u());
-		this.unregisters = [];
-		this.unsubResolver?.();
-		this.unsubResolver = undefined;
-	}
-
-	private getApi(): SequenceHotkeysApi | undefined {
-		const plugin = this.app.plugins.plugins[SEQUENCE_HOTKEYS.pluginId];
-		// Adjust to match verified API location from Task V.2.
-		const api = (plugin as unknown as {api?: SequenceHotkeysApi})?.api;
-		return api;
-	}
-
-	private registerOne(api: SequenceHotkeysApi, binding: PrefixBinding): void {
-		const action = () => {
-			const resolved = binding.preferred
-				? this.resolver.resolve({preferred: binding.preferred, fallback: binding.fallback})
-				: {commandId: binding.fallback.commandId, source: "fallback" as const};
-			if (resolved.commandId) {
-				this.app.commands.executeCommandById(resolved.commandId);
+	handle(event: KeyboardEvent): boolean {
+		if (this.state === "idle") {
+			const matchedMap = this.maps.find((m) => chordMatches(event, m.prefix));
+			if (!matchedMap) {
+				return false;
 			}
-		};
-		const unregister = api.registerSequence(binding.sequence, action);
-		this.unregisters.push(unregister);
+			this.enterAwaiting(matchedMap.bindings, "prefix " + matchedMap.prefix.key);
+			return true;
+		}
+		// awaiting
+		// Cancel keys override sub-bindings (so users can always C-g out).
+		if (CANCEL_KEYS.some((c) => chordMatches(event, c))) {
+			this.cancel();
+			return true;
+		}
+		// Re-press of any top-level prefix while awaiting: restart.
+		const restartMap = this.maps.find((m) => chordMatches(event, m.prefix));
+		if (restartMap) {
+			this.cancelTimeout();
+			this.enterAwaiting(restartMap.bindings, "restart prefix " + restartMap.prefix.key);
+			return true;
+		}
+		const binding = this.currentBindings.find((b) => chordMatches(event, b.chord));
+		if (!binding) {
+			this.logger.debug("PrefixDispatcher: unmatched chord, cancelling");
+			this.cancel();
+			return true;
+		}
+		this.cancelTimeout();
+		if (binding.action) {
+			binding.action();
+			this.state = "idle";
+			this.currentBindings = [];
+			return true;
+		}
+		if (binding.subBindings && binding.subBindings.length > 0) {
+			this.enterAwaiting(binding.subBindings, "sub-prefix " + binding.chord.key);
+			return true;
+		}
+		// Binding has neither action nor subBindings — defensive cancel.
+		this.cancel();
+		return true;
+	}
+
+	cancel(): void {
+		if (this.state === "awaiting") {
+			this.logger.debug("PrefixDispatcher: cancelled");
+		}
+		this.state = "idle";
+		this.currentBindings = [];
+		this.cancelTimeout();
+	}
+
+	private enterAwaiting(bindings: PrefixBinding[], reason: string): void {
+		this.state = "awaiting";
+		this.currentBindings = bindings;
+		this.cancelTimeout();
+		this.timeoutHandle = setTimeout(() => {
+			this.logger.debug("PrefixDispatcher: timeout, cancelling");
+			this.state = "idle";
+			this.currentBindings = [];
+			this.timeoutHandle = null;
+		}, this.timeoutMs);
+		this.logger.debug("PrefixDispatcher: " + reason);
+	}
+
+	private cancelTimeout(): void {
+		if (this.timeoutHandle !== null) {
+			clearTimeout(this.timeoutHandle);
+			this.timeoutHandle = null;
+		}
 	}
 }
 ```
 
-**Note:** The `SequenceHotkeysApi` interface above is a placeholder. Replace `registerSequence(sequence, action)` with the verified signature from Task V.2. If the verified API takes different parameter shapes (e.g., a string like `"C-x C-s"` instead of an array), update the call sites accordingly.
+- [ ] **Step 4: Verify tests pass**
 
-- [ ] **Step 3: Wire into `src/main.ts`**
+```sh
+npm test
+```
+
+Expected: 11 dispatcher tests pass; pre-existing tests still pass.
+
+- [ ] **Step 5: Commit**
+
+```sh
+git add src/prefix-maps/dispatcher.ts src/prefix-maps/dispatcher.test.ts
+git commit -m "feat(prefix-maps): in-house multi-chord prefix dispatcher
+
+State machine for emacs-style prefix sequences: idle / awaiting,
+with nested sub-prefixes (C-x 5 0) and cancellation via C-g, Escape,
+timeout, or unmatched chord. 11 unit tests cover the full state
+graph.
+
+Replaces the previously-planned Sequence Hotkeys integration. The
+dispatcher avoids any third-party multi-chord plugin dependency and
+works uniformly across all users."
+```
+
+### Task 4.2: `PREFIX_BINDINGS` table and `emacs:*` commands
+
+**Files:**
+- Create: `src/prefix-maps/bindings.ts`
+- Modify: `src/main.ts`
+
+Defines the `C-x` binding table; registers each leaf action as an `addCommand` entry (no default hotkey — the dispatcher delivers them). Each command's callback dispatches via the existing `CommandResolver` for soft-dep aware behavior.
+
+- [ ] **Step 1: Create `src/prefix-maps/bindings.ts`**
+
+```ts
+import type {Plugin} from "obsidian";
+import type {CommandResolver} from "../soft-deps/command-resolver";
+import {SWITCHER_PLUS, CYCLE_THROUGH_PANES, NATIVE_FALLBACKS} from "../soft-deps/known-plugins";
+import type {PrefixMap} from "./dispatcher";
+
+export const COMMAND_IDS = {
+	SAVE_BUFFER: "save-buffer",
+	FIND_FILE: "find-file",
+	REVEAL_IN_EXPLORER: "reveal-in-explorer",
+	SWITCH_BUFFER: "switch-buffer",
+	CLOSE_PANE: "close-pane",
+	CLOSE_OTHER_PANES: "close-other-panes",
+	SPLIT_HORIZONTAL: "split-horizontal",
+	SPLIT_VERTICAL: "split-vertical",
+	OTHER_WINDOW: "other-window",
+	MARK_WHOLE_BUFFER: "select-all",
+	UNDO_PREFIX: "undo",
+	OPEN_NEW_WINDOW: "open-new-window",
+	CLOSE_WINDOW: "close-window",
+	QUIT_APP: "quit-app",
+} as const;
+
+export type EmacsCommandId = typeof COMMAND_IDS[keyof typeof COMMAND_IDS];
+
+interface CommandSpec {
+	id: EmacsCommandId;
+	name: string;
+	dispatch: (plugin: Plugin, resolver: CommandResolver) => void;
+}
+
+const COMMAND_SPECS: CommandSpec[] = [
+	{
+		id: COMMAND_IDS.SAVE_BUFFER,
+		name: "Save buffer (C-x C-s)",
+		dispatch: (p) => p.app.commands.executeCommandById(NATIVE_FALLBACKS.editorSave),
+	},
+	{
+		id: COMMAND_IDS.FIND_FILE,
+		name: "Find file (C-x C-f)",
+		dispatch: (p, r) => {
+			const resolved = r.resolve({
+				preferred: {pluginId: SWITCHER_PLUS.pluginId, commandId: SWITCHER_PLUS.commands.fileMode},
+				fallback: {commandId: NATIVE_FALLBACKS.switcher},
+			});
+			if (resolved.commandId) p.app.commands.executeCommandById(resolved.commandId);
+		},
+	},
+	{
+		id: COMMAND_IDS.REVEAL_IN_EXPLORER,
+		name: "Reveal active file in explorer (C-x d)",
+		dispatch: (p) => p.app.commands.executeCommandById(NATIVE_FALLBACKS.editorRevealInExplorer),
+	},
+	{
+		id: COMMAND_IDS.SWITCH_BUFFER,
+		name: "Switch buffer (C-x b)",
+		dispatch: (p, r) => {
+			const resolved = r.resolve({
+				preferred: {pluginId: SWITCHER_PLUS.pluginId, commandId: SWITCHER_PLUS.commands.editorsMode},
+				fallback: {commandId: NATIVE_FALLBACKS.switcher},
+			});
+			if (resolved.commandId) p.app.commands.executeCommandById(resolved.commandId);
+		},
+	},
+	{
+		id: COMMAND_IDS.CLOSE_PANE,
+		name: "Close pane (C-x 0 / C-x k)",
+		dispatch: (p) => p.app.commands.executeCommandById(NATIVE_FALLBACKS.workspaceCloseActivePane),
+	},
+	{
+		id: COMMAND_IDS.CLOSE_OTHER_PANES,
+		name: "Close other panes (C-x 1)",
+		dispatch: (p) => p.app.commands.executeCommandById(NATIVE_FALLBACKS.workspaceCloseOthers),
+	},
+	{
+		id: COMMAND_IDS.SPLIT_HORIZONTAL,
+		name: "Split horizontal (C-x 2)",
+		dispatch: (p) => p.app.commands.executeCommandById(NATIVE_FALLBACKS.workspaceSplitHorizontal),
+	},
+	{
+		id: COMMAND_IDS.SPLIT_VERTICAL,
+		name: "Split vertical (C-x 3)",
+		dispatch: (p) => p.app.commands.executeCommandById(NATIVE_FALLBACKS.workspaceSplitVertical),
+	},
+	{
+		id: COMMAND_IDS.OTHER_WINDOW,
+		name: "Other window (C-x o)",
+		dispatch: (p, r) => {
+			const resolved = r.resolve({
+				preferred: {
+					pluginId: CYCLE_THROUGH_PANES.pluginId,
+					commandId: CYCLE_THROUGH_PANES.commands.cycle,
+				},
+				fallback: {commandId: NATIVE_FALLBACKS.workspaceNextTab},
+			});
+			if (resolved.commandId) p.app.commands.executeCommandById(resolved.commandId);
+		},
+	},
+	{
+		id: COMMAND_IDS.MARK_WHOLE_BUFFER,
+		name: "Select all (C-x h)",
+		dispatch: (p) => p.app.commands.executeCommandById(NATIVE_FALLBACKS.editorSelectAll),
+	},
+	{
+		id: COMMAND_IDS.UNDO_PREFIX,
+		name: "Undo prefix (C-x u)",
+		dispatch: (p) => p.app.commands.executeCommandById(NATIVE_FALLBACKS.editorUndo),
+	},
+	{
+		id: COMMAND_IDS.OPEN_NEW_WINDOW,
+		name: "Open new window (C-x 5 2)",
+		dispatch: (p) => p.app.commands.executeCommandById(NATIVE_FALLBACKS.workspaceOpenNewWindow),
+	},
+	{
+		id: COMMAND_IDS.CLOSE_WINDOW,
+		name: "Close window (C-x 5 0)",
+		dispatch: (p) => p.app.commands.executeCommandById(NATIVE_FALLBACKS.workspaceCloseWindow),
+	},
+	{
+		id: COMMAND_IDS.QUIT_APP,
+		name: "Quit Obsidian (C-x C-c)",
+		dispatch: (p) => p.app.commands.executeCommandById(NATIVE_FALLBACKS.appQuit),
+	},
+];
+
+export function registerPrefixCommands(plugin: Plugin, resolver: CommandResolver): Map<string, () => void> {
+	const handles = new Map<string, () => void>();
+	for (const spec of COMMAND_SPECS) {
+		const fullId = "emacs:" + spec.id;
+		const callback = () => spec.dispatch(plugin, resolver);
+		plugin.addCommand({
+			id: spec.id, // Obsidian prepends the manifest id automatically
+			name: spec.name,
+			callback,
+		});
+		handles.set(fullId, callback);
+	}
+	return handles;
+}
+
+export function buildCxPrefixMap(handles: Map<string, () => void>): PrefixMap {
+	const get = (id: string) => {
+		const fn = handles.get("emacs:" + id);
+		if (!fn) throw new Error("missing emacs command: " + id);
+		return fn;
+	};
+	return {
+		prefix: {ctrl: true, key: "x"},
+		bindings: [
+			{chord: {ctrl: true, key: "s"}, action: get(COMMAND_IDS.SAVE_BUFFER)},
+			{chord: {ctrl: true, key: "f"}, action: get(COMMAND_IDS.FIND_FILE)},
+			{chord: {key: "d"}, action: get(COMMAND_IDS.REVEAL_IN_EXPLORER)},
+			{chord: {key: "b"}, action: get(COMMAND_IDS.SWITCH_BUFFER)},
+			{chord: {key: "k"}, action: get(COMMAND_IDS.CLOSE_PANE)},
+			{chord: {key: "0"}, action: get(COMMAND_IDS.CLOSE_PANE)},
+			{chord: {key: "1"}, action: get(COMMAND_IDS.CLOSE_OTHER_PANES)},
+			{chord: {key: "2"}, action: get(COMMAND_IDS.SPLIT_HORIZONTAL)},
+			{chord: {key: "3"}, action: get(COMMAND_IDS.SPLIT_VERTICAL)},
+			{chord: {key: "o"}, action: get(COMMAND_IDS.OTHER_WINDOW)},
+			{chord: {key: "h"}, action: get(COMMAND_IDS.MARK_WHOLE_BUFFER)},
+			{chord: {key: "u"}, action: get(COMMAND_IDS.UNDO_PREFIX)},
+			{
+				chord: {key: "5"},
+				subBindings: [
+					{chord: {key: "2"}, action: get(COMMAND_IDS.OPEN_NEW_WINDOW)},
+					{chord: {key: "0"}, action: get(COMMAND_IDS.CLOSE_WINDOW)},
+				],
+			},
+			{chord: {ctrl: true, key: "c"}, action: get(COMMAND_IDS.QUIT_APP)},
+		],
+	};
+}
+```
+
+- [ ] **Step 2: Wire into `src/main.ts`**
 
 Add imports:
 ```ts
-import {MultiChordRegistry} from "./prefix-maps/multi-chord";
-import {SEQUENCE_HOTKEYS} from "./soft-deps/known-plugins";
+import {PrefixDispatcher} from "./prefix-maps/dispatcher";
+import {registerPrefixCommands, buildCxPrefixMap} from "./prefix-maps/bindings";
 ```
 
 Add a field:
 ```ts
-private multiChord!: MultiChordRegistry;
+private prefixDispatcher!: PrefixDispatcher;
 ```
 
 In `onload`, after Phase 3a wiring:
 ```ts
-this.multiChord = new MultiChordRegistry(this.app, this, this.resolver);
-const updateMultiChord = (enabled: boolean) => {
-	this.multiChord.disable();
-	if (enabled) {
-		this.multiChord.enable();
-	}
-};
-if (this.detector.isEnabled(SEQUENCE_HOTKEYS.pluginId)) {
-	this.multiChord.enable();
-}
-this.detector.subscribe(SEQUENCE_HOTKEYS.pluginId, updateMultiChord);
+const handles = registerPrefixCommands(this, this.resolver);
+const cxPrefixMap = buildCxPrefixMap(handles);
+this.prefixDispatcher = new PrefixDispatcher([cxPrefixMap], this.logger);
 ```
 
-In `onunload`, before `this.detector?.dispose()`:
-```ts
-this.multiChord?.disable();
-```
+The dispatcher itself is consumed by Phase 4 task 4.3 (the wiring step).
 
-- [ ] **Step 4: Build and install**
+- [ ] **Step 3: Build, install, smoke-test commands appear**
 
 ```sh
 make install
 ```
 
-- [ ] **Step 5: Manual test**
+Reload Obsidian. Open the command palette (Cmd-P). Type "emacs". Verify all 14 `Emacs text editor: ...` commands appear (Save buffer, Find file, ...). They aren't bound to any keys yet (no default hotkey, dispatcher not yet hooked into the keydown listener). Phase 4 task 4.3 wires the dispatcher.
 
-Reload Obsidian with Sequence Hotkeys enabled. Test each binding:
+- [ ] **Step 4: Commit**
 
-- `C-x C-s` → save current note.
-- `C-x C-f` → with Switcher++, opens find-file mode; without it, opens native quick switcher.
-- `C-x b` → with Switcher++, opens editors mode; without it, native switcher.
-- `C-x k` → close active pane.
-- `C-x 1` → close other panes.
-- `C-x 2` → split horizontal.
-- `C-x 3` → split vertical.
-- `C-x o` → with Cycle through panes, cycles panes; without it, next tab.
-- `C-x h` → select all in editor.
+```sh
+git add src/prefix-maps/bindings.ts src/main.ts
+git commit -m "feat(prefix-maps): emacs:* commands and C-x prefix map
+
+Defines 14 emacs-style commands (save-buffer, find-file, switch-buffer,
+close-pane, split-horizontal, etc.) as Obsidian addCommand entries.
+Each command's callback dispatches through CommandResolver where a
+richer plugin alternative exists (Switcher++ for find-file/switch-buffer,
+Cycle through panes for other-window).
+
+Builds the C-x PrefixMap consumed by the PrefixDispatcher in the next
+task. Commands are unbound by default; dispatcher delivers them. Users
+can also bind via Obsidian's Hotkeys settings if they prefer."
+```
+
+### Task 4.3: Wire the dispatcher into the Layer-2 keydown listener
+
+**Files:**
+- Modify: `src/input-bindings/index.ts`
+- Modify: `src/main.ts`
+
+The dispatcher must run **before** the Layer-2 ID-spec dispatch, because `C-x` itself is a chord we want to claim before Layer 2 considers it. Modify `installInputBindings` to accept an optional dispatcher and consult it first.
+
+- [ ] **Step 1: Modify `src/input-bindings/index.ts` to consult the dispatcher**
+
+In the `InputBindingsContext` interface, add an optional field:
+```ts
+export interface InputBindingsContext {
+	killRing: KillRing;
+	mark: MarkState;
+	repeats: RepeatDetector;
+	logger: Logger;
+	prefixDispatcher?: {handle(event: KeyboardEvent): boolean};
+}
+```
+
+In the `handler` inside `installInputBindings`, consult the dispatcher first:
+```ts
+const handler = (event: KeyboardEvent) => {
+	if (ctx.prefixDispatcher?.handle(event)) {
+		event.preventDefault();
+		event.stopPropagation();
+		return;
+	}
+	// ... existing classification + KEY_SPECS dispatch ...
+};
+```
+
+Note: the dispatcher is called for **every** keydown, even when the target is not an input/textarea. This is intentional — `C-x C-s` should save the file regardless of whether focus is in the editor, in a search bar, or nowhere. The dispatcher's prefix matching is conservative (only fires on registered chords), so non-prefix keys pass through to the existing element-classification path.
+
+- [ ] **Step 2: Modify `src/main.ts` to pass the dispatcher into the bindings context**
+
+Update the `installInputBindings(...)` call:
+```ts
+installInputBindings(
+	document,
+	{
+		killRing: this.killRing,
+		mark: this.mark,
+		repeats: this.repeats,
+		logger: this.logger,
+		prefixDispatcher: this.prefixDispatcher,
+	},
+	cleanup => this.register(cleanup),
+);
+```
+
+- [ ] **Step 3: Build and install**
+
+```sh
+make install
+```
+
+Reload Obsidian.
+
+- [ ] **Step 4: Manual smoke test — multi-chord bindings fire**
+
+In any markdown note:
+- `C-x C-s` → file saves (status bar reflects).
+- `C-x C-f` → opens Switcher++ file mode (or native switcher if Switcher++ not enabled).
+- `C-x b` → opens Switcher++ editors mode.
+- `C-x o` → cycles panes (or next tab if Cycle through panes not enabled).
+- `C-x 5 2` → opens new window.
+- `C-x 5 0` → closes window.
+- `C-x h` → selects all in editor.
 - `C-x u` → undo.
+- `C-x 1` → close other panes.
+- `C-x 2` / `C-x 3` → split.
 
-Disable Sequence Hotkeys → all `C-x` bindings stop firing. Re-enable → they return without an Obsidian reload.
+`C-x` then `C-g` → cancels prefix; subsequent `C-g` returns to keyboard-quit (Layer 1).
+
+`C-x` then wait 5 seconds → prefix auto-cancels.
+
+`C-x` then `z` (unbound) → cancel; `z` not inserted.
+
+- [ ] **Step 5: Manual regression — Layer 1 and Layer 2 still work**
+
+Verify Layer 1 (markdown editor) and Layer 2 (in-input) bindings still work as before. The dispatcher should pass through keys it doesn't recognize.
+
+If any regress, the dispatcher's `handle()` is consuming events it shouldn't. Debug by logging in the dispatcher.
 
 - [ ] **Step 6: Commit**
 
 ```sh
-git add src/prefix-maps/multi-chord.ts src/main.ts
-git commit -m "feat(prefix-maps): multi-chord C-x bindings via Sequence Hotkeys
+git add src/input-bindings/index.ts src/main.ts
+git commit -m "feat(prefix-maps): wire PrefixDispatcher into Layer-2 keydown listener
 
-Twelve C-x prefix bindings (C-x C-s, C-x C-f, C-x b, C-x k, C-x 0/1/2/3,
-C-x o, C-x h, C-x u, C-x C-c). Each routes through the soft-deps resolver
-where a richer plugin alternative exists; otherwise falls back to a
-native Obsidian command.
+The dispatcher gets first crack at every keydown via the existing
+capture-phase listener. It returns true when a chord is consumed
+(prefix entry, leaf dispatch, cancel); the listener then short-
+circuits without falling through to Layer-2 ID-spec dispatch. False
+returns pass through unchanged.
 
-Hard requires the Sequence Hotkeys plugin. The detector subscription
-toggles registration when Sequence Hotkeys is enabled / disabled
-without requiring an Obsidian reload."
+Multi-chord bindings now work: C-x C-s, C-x C-f, C-x b, C-x o, etc.
+Cancel via C-g, Escape, 5s timeout, or unmatched chord."
 ```
-
 ---
 
 ## Phase 5 — Collision documentation, regression, release
@@ -2224,9 +2594,9 @@ export const KNOWN_COLLISIONS: Collision[] = [
 	},
 	{
 		hotkey: "Ctrl-X",
-		emacsCommand: "(prefix; via Sequence Hotkeys when enabled)",
+		emacsCommand: "(prefix; in-house dispatcher)",
 		obsidianDefault: "Cut",
-		resolution: "emacs wins as a prefix when Sequence Hotkeys is enabled; native Cut available via Cmd-X",
+		resolution: "emacs wins as a prefix; native Cut available via Cmd-X",
 	},
 ];
 ```
@@ -2269,16 +2639,15 @@ For each surface (search bar, quick switcher, command palette, file rename, sett
 - `M-%` (Alt+Shift+5) → search-replace.
 - `C-g` workspace fallback → closes modals.
 
-- [ ] **Step 5: Layer 3b regression (with Sequence Hotkeys enabled)**
+- [ ] **Step 5: Layer 3b regression (in-house dispatcher)**
 
-Run through every entry in PREFIX_BINDINGS.
+Exercise every entry in the C-x prefix map. Verify cancel via `C-g` mid-prefix, cancel via Escape, cancel via 5-second timeout. Re-press of `C-x` mid-awaiting restarts the prefix. Unbound second chord (e.g., `C-x z`) cancels and does not insert the second key.
 
 - [ ] **Step 6: Soft-dep dynamic toggle**
 
 - Disable Switcher++. Verify `M-x` falls back to native palette without Obsidian reload.
 - Re-enable. Verify `M-x` switches back.
-- Disable Sequence Hotkeys. Verify all C-x bindings disappear.
-- Re-enable. Verify they return.
+- Disable Cycle through panes. Verify `C-x o` falls back to `workspace:next-tab`. Re-enable; verify it switches back.
 
 If any fails, fix in-place before tagging.
 
@@ -2349,10 +2718,11 @@ git commit -m "chore: release 0.6.0 (emacs bindings everywhere)
 
 End of the feature implementation plan
 (docs/plans/2026-05-08-feature-implementation.md). Layer 2 and Layer 3
-ship; soft-deps integration with Sequence Hotkeys, Switcher++, Cycle
-through panes; full unit-test coverage for soft-deps logic and DOM ops;
-manual surface checklist green for inputs and textareas (contenteditable
-deferred)."
+ship; soft-deps integration with Switcher++ and Cycle through panes;
+in-house prefix-chord dispatcher for multi-chord (no third-party
+multi-chord plugin dependency); full unit-test coverage for soft-deps
+logic, DOM ops, and the dispatcher state machine; manual surface
+checklist green for inputs and textareas (contenteditable deferred)."
 ```
 
 - [ ] **Step 3: Tag and optionally push**
@@ -2387,7 +2757,7 @@ After all phases land, verify:
 
 - [ ] **Surface checklist:** Task 2.5's surface verification was done; failures documented in AGENTS.md or filed as 0.6.x issues. No silent regressions.
 
-- [ ] **Soft-dep dynamic toggle:** Task 5.2 step 6 verified. Switcher++ and Sequence Hotkeys enable/disable propagate without an Obsidian reload.
+- [ ] **Soft-dep dynamic toggle:** Task 5.2 step 6 verified. Switcher++ and Cycle through panes enable/disable propagate without an Obsidian reload.
 
 - [ ] **No production console.log:** `grep -rn "console\\.log" src/` returns zero results. All logging goes through the logger.
 

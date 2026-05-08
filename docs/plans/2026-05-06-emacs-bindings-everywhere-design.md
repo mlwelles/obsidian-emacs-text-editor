@@ -41,7 +41,7 @@ Two sub-categories:
 
 **3a. Single-chord global aliases** — `M-x`, `C-s`, etc. Registered as ordinary `addCommand` entries with `hotkeys`. Obsidian's hotkey system handles dispatch.
 
-**3b. Multi-chord prefix maps** — `C-x C-s`, `C-x b`, etc. Registered programmatically via the Sequence Hotkeys plugin's API when that plugin is enabled. Silently absent otherwise.
+**3b. Multi-chord prefix maps** — `C-x C-s`, `C-x b`, etc. Implemented by an in-house prefix-chord state machine sharing the Layer-2 capture-phase keydown listener. No third-party plugin dependency. Bindings work uniformly whether or not the user has any other multi-chord plugin (leader-hotkeys, Sequence Hotkeys, etc.) installed.
 
 ## Layer 1 binding table (unchanged from v0.9.0)
 
@@ -90,7 +90,7 @@ Additive only. Never removes existing Obsidian defaults.
 
 ## Layer 3b binding table — multi-chord (C-x prefix)
 
-Hard-requires Sequence Hotkeys. If absent, all of Layer 3b is silently inactive.
+Implemented by an in-house prefix-chord state machine. No third-party plugin dependency. The dispatcher hooks the same document-level capture-phase keydown listener used by Layer 2, so it sees keys before any other Obsidian or plugin handler. Cancellable via `C-g`, Escape, or a configurable timeout (default ~5 seconds).
 
 | Sequence | Emacs meaning | Obsidian (preferred) | Fallback |
 |---|---|---|---|
@@ -125,7 +125,7 @@ Current soft deps:
 
 | Plugin | Affected bindings | Native fallback |
 |---|---|---|
-| `obsidian-sequence-hotkeys` | All of Layer 3b | None — Layer 3b inactive |
+| (none for Layer 3b) | Layer 3b uses an in-house dispatcher | n/a — no soft-dep |
 | `darlal-switcher-plus` | M-x, C-x C-f, C-x b | `command-palette:open`, `switcher:open`, `switcher:open` |
 | `cycle-through-panes` | C-x o | `workspace:next-tab` |
 
@@ -141,7 +141,7 @@ input-bindings/
   index.ts              # Layer 2 entry: capture-phase listener + element filter
   ops.ts                # Vanilla-DOM cursor + region primitives
 workspace-bindings.ts   # Layer 3a: single-chord aliases via addCommand
-prefix-map.ts           # Layer 3b: Sequence Hotkeys integration
+prefix-map.ts           # Layer 3b: in-house prefix-chord state machine
 soft-deps.ts            # Plugin detection + dynamic re-registration
 collisions.ts           # Documented Obsidian-default rebinding map
 types.ts                # Shared types
@@ -163,7 +163,7 @@ Implement `input-bindings/index.ts` (capture-phase listener + element filter) an
 Add `workspace-bindings.ts`. Register M-x, C-s, C-r, M-%, C-g via `addCommand` + `hotkeys`. M-x dispatches through the Phase 1 soft-deps resolver (Switcher++ vs native palette). Commit.
 
 ### Phase 4 — Layer 3b: prefix maps
-Add `prefix-map.ts`. Detect Sequence Hotkeys at load; register the C-x bindings via its API. Hook the soft-deps event subscription so Sequence Hotkeys toggle drives register/unregister dynamically — no Obsidian reload required. Commit.
+Add `prefix-map.ts`. Implement a `PrefixDispatcher` class: state machine tracking idle / awaiting-second / awaiting-third chord; matches against a registered prefix-map table; cancels on `C-g` / Escape / timeout. Hook into the Layer-2 capture-phase keydown listener so it gets first crack at keys, returns true when a chord is consumed. Commit.
 
 ### Phase 5 — Collision documentation, regression, release
 `collisions.ts` captures every known Obsidian default that conflicts with our bindings plus the resolution policy (emacs wins; rebind to emacs equivalent where sensible; drop otherwise) — documentation-as-code, not active behavior. Full surface checklist from `AGENTS.md`. Layer 1 regression check. Bump version, update README, tag release.
@@ -178,7 +178,7 @@ No automated suite (Obsidian plugins are hard to test outside the host). Per cha
 
 **Layer 3a:** M-x opens palette; C-s opens search; C-r opens search; M-% opens replace; C-g closes modals.
 
-**Layer 3b (with Sequence Hotkeys enabled):** every entry in the C-x table fires its mapped command. Toggle Sequence Hotkeys off → bindings disappear without reload. Toggle on → bindings return without reload.
+**Layer 3b:** every entry in the C-x table fires its mapped command. `C-g` mid-prefix cancels. Timeout (~5s) auto-cancels. Re-press of the prefix while in awaiting state cancels and starts fresh.
 
 **Soft-dep verification:** disable Switcher++; verify M-x falls back to native palette. Re-enable; verify M-x switches back to Switcher++ without reload. Repeat for cycle-through-panes.
 
