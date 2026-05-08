@@ -13,6 +13,7 @@ import {registerCommands} from "./commands/register";
 import {KillRing} from "./kill-ring/kill-ring";
 import {YankPopSession} from "./kill-ring/yank-pop";
 import {MarkState} from "./selection/mark";
+import {RepeatDetector} from "./tracking/repeat-detector";
 
 type MarkdownViewWithCM = MarkdownView & { editor?: { cm?: EditorView } };
 
@@ -27,7 +28,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	extendLastKill = false
 	extendLastKillBackwards = false
 	private readonly killRing = new KillRing(120);
-	lastCommandInvoked?: CommandId = undefined
+	private readonly repeats = new RepeatDetector();
 	// TODO: Consider possibility migrate to native selection mechanism
 	readonly mark = new MarkState();
 	private readonly yankPopSession = new YankPopSession();
@@ -49,10 +50,9 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		if (id !== COMMAND_IDS.YANK_POP) {
 			this.cancelYankPop()
 		}
-		const isRepeat = this.lastCommandInvoked === id
+		const {isRepeat} = this.repeats.track(id)
 		this.extendLastKill = isRepeat && COMMANDS_THAT_EXTEND_LAST_KILL_FORWARD.has(id)
 		this.extendLastKillBackwards = isRepeat && COMMANDS_THAT_EXTEND_LAST_KILL_BACKWARD.has(id)
-		this.lastCommandInvoked = id
 	}
 
 	onunload() {
