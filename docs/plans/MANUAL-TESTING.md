@@ -80,9 +80,13 @@ For each row: place the cursor where indicated, press the key combo, observe the
 | A19 | Anywhere | `C-Space`, then `C-f` × 5, then `M-w` | 5 chars selected, copied (NOT deleted), selection cleared | |
 | A20 | After A18/A19 | `C-y` | Killed/saved text inserted at cursor | |
 | A21 | Anywhere | `C-/` | Last edit undone | |
-| A22 | After undo | `C-S-_` (Ctrl+Shift+Underscore) | Redo | |
-| A23 | Anywhere | `C-l` | Cursor line scrolled to bottom of viewport | |
-| A24 | Anywhere | `C-g` | Selection cleared (no error) | |
+| A22 | After undo | `C-S-/` (Ctrl+Shift+Slash) | Redo | |
+| A23a | Anywhere | `C-_` (Ctrl+Underscore) | Undo (standard emacs binding) | |
+| A23b | After undo | `C-M-_` (Ctrl+Alt+Underscore) | Redo (standard emacs binding) | |
+| A23c | Anywhere | `C-S--` (Ctrl+Shift+Minus, produces `_` on US layout) | Undo (compatibility binding) | |
+| A23d | After undo | `C-S-A--` (Ctrl+Shift+Alt+Minus) | Redo (compatibility binding) | |
+| A24 | Anywhere | `C-l` | Cursor line scrolled to bottom of viewport | |
+| A25 | Anywhere | `C-g` | Selection cleared (no error) | |
 
 **If any of A1–A24 fails, stop and report.** These are the regression-critical bindings.
 

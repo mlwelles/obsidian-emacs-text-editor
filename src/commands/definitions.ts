@@ -273,7 +273,11 @@ export function buildCommands(ctx: PluginContext): CommandDef[] {
 		{
 			id: COMMAND_IDS.UNDO,
 			name: "Undo",
-			hotkeys: [{modifiers: ["Ctrl", "Shift"], key: "-"}, {modifiers: ["Ctrl"], key: "/"}],
+			hotkeys: [
+				{modifiers: ["Ctrl", "Shift"], key: "-"},
+				{modifiers: ["Ctrl"], key: "_"},
+				{modifiers: ["Ctrl"], key: "/"},
+			],
 			editorCallback: (editor) => {
 				ctx.commandInvoked(COMMAND_IDS.UNDO);
 				editor.undo();
@@ -282,7 +286,11 @@ export function buildCommands(ctx: PluginContext): CommandDef[] {
 		{
 			id: COMMAND_IDS.REDO,
 			name: "Redo",
-			hotkeys: [{modifiers: ["Ctrl", "Shift", "Alt"], key: "-"}, {modifiers: ["Ctrl", "Shift"], key: "/"}],
+			hotkeys: [
+				{modifiers: ["Ctrl", "Shift", "Alt"], key: "-"},
+				{modifiers: ["Ctrl", "Alt"], key: "_"},
+				{modifiers: ["Ctrl", "Shift"], key: "/"},
+			],
 			editorCallback: (editor) => {
 				ctx.commandInvoked(COMMAND_IDS.REDO);
 				editor.redo();
