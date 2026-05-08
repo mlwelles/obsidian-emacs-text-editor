@@ -1176,7 +1176,7 @@ export function killWord(el: EditableElement): string {
 	el.value = el.value.slice(0, start) + el.value.slice(end);
 	el.setSelectionRange(start, start);
 	el.dispatchEvent(new Event("input", {bubbles: true}));
-	return killed.trim() || killed;
+	return killed;
 }
 
 export function backwardKillWord(el: EditableElement): string {
@@ -1186,7 +1186,7 @@ export function backwardKillWord(el: EditableElement): string {
 	el.value = el.value.slice(0, start) + el.value.slice(end);
 	el.setSelectionRange(start, start);
 	el.dispatchEvent(new Event("input", {bubbles: true}));
-	return killed.trim() || killed;
+	return killed;
 }
 
 export function killLine(el: EditableElement): string {
@@ -1225,8 +1225,6 @@ function nextWordBoundary(text: string, from: number, direction: 1 | -1): number
 	return pos;
 }
 ```
-
-**Note:** killed-text trimming behavior — emacs semantics: `kill-word` returns the entire span including leading whitespace. The kill-ring-save consumer doesn't need to filter; the test expectations above (`expect(killed).toBe("foo")`, `expect(killed).toBe("bar")`) reflect that the leading-whitespace skip happens *before* the kill, so the killed span is the word itself with no leading spaces. The implementation matches: `nextWordBoundary` advances past whitespace before consuming word chars, so the kill range starts at the first word char. The `trim() || killed` fallback in the implementation is for the edge case where the entire range is whitespace; in normal use the trim is a no-op.
 
 - [ ] **Step 4: Verify tests pass**
 

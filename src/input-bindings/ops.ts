@@ -97,7 +97,7 @@ export function killWord(el: EditableElement): string {
 	el.value = el.value.slice(0, start) + el.value.slice(end);
 	el.setSelectionRange(start, start);
 	el.dispatchEvent(new Event("input", {bubbles: true}));
-	return killed.trim() || killed;
+	return killed;
 }
 
 export function backwardKillWord(el: EditableElement): string {
@@ -107,7 +107,7 @@ export function backwardKillWord(el: EditableElement): string {
 	el.value = el.value.slice(0, start) + el.value.slice(end);
 	el.setSelectionRange(start, start);
 	el.dispatchEvent(new Event("input", {bubbles: true}));
-	return killed.trim() || killed;
+	return killed;
 }
 
 export function killLine(el: EditableElement): string {

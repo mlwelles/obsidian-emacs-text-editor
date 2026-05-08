@@ -158,7 +158,7 @@ describe("previousLine", () => {
 		expect(el.selectionStart).toBe(2);
 	});
 
-	it("stops at start of value if no previous line", () => {
+	it("does nothing if cursor is on the first line", () => {
 		const el = makeTextarea("only line", 4);
 		previousLine(el);
 		expect(el.selectionStart).toBe(4);
@@ -221,6 +221,20 @@ describe("killWord", () => {
 		expect(el.value).toBe(" bar baz");
 		expect(el.selectionStart).toBe(0);
 	});
+
+	it("preserves leading whitespace in the killed text", () => {
+		const el = makeTextarea("foo bar baz", 3); // cursor between "foo" and " bar"
+		const killed = killWord(el);
+		expect(killed).toBe(" bar");
+		expect(el.value).toBe("foo baz");
+	});
+
+	it("returns empty string when there's no word to kill", () => {
+		const el = makeTextarea("foo", 3); // at end
+		const killed = killWord(el);
+		expect(killed).toBe("");
+		expect(el.value).toBe("foo");
+	});
 });
 
 describe("backwardKillWord", () => {
@@ -230,5 +244,19 @@ describe("backwardKillWord", () => {
 		expect(killed).toBe("bar");
 		expect(el.value).toBe("foo  baz");
 		expect(el.selectionStart).toBe(4);
+	});
+
+	it("preserves trailing whitespace in the killed text", () => {
+		const el = makeTextarea("foo bar baz", 4); // cursor at start of "bar"
+		const killed = backwardKillWord(el);
+		expect(killed).toBe("foo ");
+		expect(el.value).toBe("bar baz");
+	});
+
+	it("returns empty string when there's no word to kill backward", () => {
+		const el = makeTextarea("foo", 0); // at start
+		const killed = backwardKillWord(el);
+		expect(killed).toBe("");
+		expect(el.value).toBe("foo");
 	});
 });
