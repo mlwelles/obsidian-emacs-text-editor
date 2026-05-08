@@ -11,6 +11,7 @@ import {
 import type {CommandDef} from "./commands/definitions";
 import {registerCommands} from "./commands/register";
 import {KillRing} from "./kill-ring/kill-ring";
+import {YankPopSession} from "./kill-ring/yank-pop";
 
 type MarkdownViewWithCM = MarkdownView & { editor?: { cm?: EditorView } };
 
@@ -26,10 +27,9 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	extendLastKillBackwards = false
 	private readonly killRing = new KillRing(120);
 	lastCommandInvoked?: CommandId = undefined
-	yankEnd?: EditorPosition = undefined
 	// TODO: Consider possibility migrate to native selection mechanism
 	selectFrom?: EditorPosition = undefined
-	yankStart?: EditorPosition = undefined
+	private readonly yankPopSession = new YankPopSession();
 
 	onload() {
 		console.log("loading plugin: Emacs text editor");
@@ -201,34 +201,36 @@ export default class EmacsTextEditorPlugin extends Plugin {
 			editor.replaceSelection(clipboardText);
 			this.cancelSelect(editor);
 		}
-		this.yankStart = position;
-		editor.setCursor(this.yankStart.line, this.yankStart.ch + clipboardText.length);
-		this.yankEnd = editor.getCursor()
+		const newEnd = {line: position.line, ch: position.ch + clipboardText.length};
+		editor.setCursor(newEnd);
+		this.yankPopSession.start(position, newEnd);
 		this.logger.debug("yanked '" + yankText + "'")
 	}
 
 	cancelYankPop() {
-		this.yankStart = undefined;
-		this.yankEnd = undefined;
+		this.yankPopSession.cancel();
 		this.logger.debug("yank pop stopped")
 	}
 
 	async yankPop(editor: Editor) {
 		this.logger.debug("yank pop started")
-		if (this.yankStart === undefined || this.yankEnd === undefined) {
+		const range = this.yankPopSession.range();
+		if (!range) {
 			this.logger.debug("can't yank pop")
 			return;
 		}
 		const yankPopText = this.killRing.rotate();
 		if (yankPopText === undefined) {
+			this.logger.debug("kill ring empty")
 			return;
 		}
 		this.logger.debug("yank pop text: " + yankPopText)
 		this.cancelSelect(editor);
-		editor.setSelection(this.yankStart, this.yankEnd)
+		editor.setSelection(range.start, range.end)
 		editor.replaceSelection(yankPopText);
-		editor.setCursor(this.yankStart.line, this.yankStart.ch + yankPopText.length);
-		this.yankEnd = editor.getCursor()
+		const newEnd = {line: range.start.line, ch: range.start.ch + yankPopText.length};
+		editor.setCursor(newEnd);
+		this.yankPopSession.updateEnd(newEnd);
 		this.logger.debug("yank popped '" + yankPopText + "'")
 	}
 
