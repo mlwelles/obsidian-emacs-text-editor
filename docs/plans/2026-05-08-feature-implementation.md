@@ -2119,9 +2119,12 @@ export class PrefixDispatcher {
 		}
 		this.cancelTimeout();
 		if (binding.action) {
-			binding.action();
+			// Reset state BEFORE invoking the action so any synchronous
+			// keystrokes the action might trigger (it shouldn't, but
+			// defensive) see the dispatcher in idle.
 			this.state = "idle";
 			this.currentBindings = [];
+			binding.action();
 			return true;
 		}
 		if (binding.subBindings && binding.subBindings.length > 0) {
@@ -2745,15 +2748,15 @@ The `.github/workflows/release.yml` will build and create a draft GitHub release
 
 After all phases land, verify:
 
-- [ ] **Spec coverage:** every binding in the design doc's tables (Layer 2 16 entries, Layer 3a 5 entries, Layer 3b 12 entries) has a corresponding registration. The KEY_SPECS array (Phase 2 task 2.4), PREFIX_BINDINGS array (Phase 4 task 4.1), and the addCommand calls in single-chord.ts (Phase 3a task 3.1) cover them.
+- [ ] **Spec coverage:** every binding in the design doc's tables (Layer 2 18 entries, Layer 3a 5 entries, Layer 3b 15 sequences for 14 commands — `C-x C-b` explicitly dropped, no native command id) has a corresponding registration. The KEY_SPECS array (Phase 2 task 2.4), PREFIX_BINDINGS in `src/prefix-maps/bindings.ts` (Phase 4 task 4.2), and the addCommand calls in single-chord.ts (Phase 3a task 3.1) cover them.
 
 - [ ] **No placeholders:** `<verified-id>` placeholders in `src/soft-deps/known-plugins.ts` are filled in with real values from Task V.2. The `SequenceHotkeysApi` interface in `src/prefix-maps/multi-chord.ts` matches the verified API shape.
 
 - [ ] **Type consistency:** `ResolvedCommand`, `PreferredCommand`, `ResolveSpec`, `InputBindingsContext`, `Collision` types referenced consistently. Method names (`isEnabled`, `subscribe`, `resolve`, `watch`, `dispose`, `enable`, `disable`) match across modules.
 
-- [ ] **Test coverage:** unit tests for `PluginDetector` (7 tests), `CommandResolver` (4 tests), `classifyElement` (11 tests), `ops` movement+kill (~17 tests) all pass. DOM tests run under jsdom.
+- [ ] **Test coverage:** unit tests for `PluginDetector` (7 tests), `CommandResolver` (4 tests), `classifyElement` (11 tests), `ops` movement+kill+region (~35 tests after Layer 2 tasks 2.2 and 2.3), `PrefixDispatcher` (11 tests) all pass. Combined with the 29 existing refactor-baseline tests (log, KillRing, YankPopSession, MarkState, RepeatDetector), total is ~95 tests after Phase 4. DOM tests run under jsdom.
 
-- [ ] **Commit hygiene:** ~14 commits across the four phases (3 in Phase 1, 5 in Phase 2, 1 in Phase 3, 1 in Phase 4, 4 in Phase 5). Each builds on its predecessors; nothing forces a multi-commit rebase.
+- [ ] **Commit hygiene:** ~16 commits across five phases (4 in Phase 1: detector / resolver / known-plugins / wire; 5 in Phase 2: filter / ops-basic / ops-region / router / agents-doc; 1 in Phase 3: single-chord; 3 in Phase 4: dispatcher / bindings / wire; 3 in Phase 5: collisions-doc / readme / release-and-tag — Task 5.2 regression is a verification checkpoint with no commit). Each builds on its predecessors; nothing forces a multi-commit rebase.
 
 - [ ] **Surface checklist:** Task 2.5's surface verification was done; failures documented in AGENTS.md or filed as 0.6.x issues. No silent regressions.
 
@@ -2783,6 +2786,6 @@ Plan complete and saved to `docs/plans/2026-05-08-feature-implementation.md`. Tw
 
 **2. Inline Execution** — execute tasks in this session using `executing-plans`, batch execution with checkpoints.
 
-Subagent-driven is recommended given the breadth of this plan (5 phases, ~14 commits, frequent context switches between unit tests and live Obsidian smoke tests).
+Subagent-driven is recommended given the breadth of this plan (5 phases, ~16 commits, frequent context switches between unit tests and live Obsidian smoke tests).
 
 
