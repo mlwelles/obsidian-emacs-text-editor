@@ -14,6 +14,8 @@ import {YankPopSession} from "./kill-ring/yank-pop";
 import {MarkState} from "./selection/mark";
 import {RepeatDetector} from "./tracking/repeat-detector";
 import {cancelYankPop, type KillContext} from "./editor-ops/editing";
+import {PluginDetector} from "./soft-deps/plugin-detector";
+import {CommandResolver} from "./soft-deps/command-resolver";
 
 export default class EmacsTextEditorPlugin extends Plugin implements PluginContext {
 	// toggle to enable debug logging
@@ -25,6 +27,8 @@ export default class EmacsTextEditorPlugin extends Plugin implements PluginConte
 	readonly mark = new MarkState();
 	readonly yankPopSession = new YankPopSession();
 	private readonly repeats = new RepeatDetector();
+	private detector!: PluginDetector;
+	private resolver!: CommandResolver;
 	readonly killCtx: KillContext = {
 		killRing: this.killRing,
 		mark: this.mark,
@@ -36,6 +40,8 @@ export default class EmacsTextEditorPlugin extends Plugin implements PluginConte
 
 	onload() {
 		console.log("loading plugin: Emacs text editor");
+		this.detector = new PluginDetector(this.app);
+		this.resolver = new CommandResolver(this.detector);
 		// Any mousedown anywhere cancels mark-mode and yank-pop session,
 		// matching emacs (where keyboardQuit does both) and Obsidian's
 		// own selection-cancel behavior. Cheap no-op when neither is active.
@@ -47,6 +53,7 @@ export default class EmacsTextEditorPlugin extends Plugin implements PluginConte
 	}
 
 	onunload() {
+		this.detector?.dispose();
 		console.log("unloading plugin: Emacs text editor");
 	}
 
