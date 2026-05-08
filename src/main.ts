@@ -28,6 +28,7 @@ export default class EmacsTextEditorPlugin extends Plugin implements PluginConte
 	readonly mark = new MarkState();
 	readonly yankPopSession = new YankPopSession();
 	private readonly repeats = new RepeatDetector();
+	private readonly inputRepeats = new RepeatDetector();
 	private detector!: PluginDetector;
 	private resolver!: CommandResolver;
 	readonly killCtx: KillContext = {
@@ -48,7 +49,7 @@ export default class EmacsTextEditorPlugin extends Plugin implements PluginConte
 			{
 				killRing: this.killRing,
 				mark: this.mark,
-				repeats: this.repeats,
+				repeats: this.inputRepeats,
 				logger: this.logger,
 			},
 			cleanup => this.register(cleanup),

@@ -187,8 +187,10 @@ function dispatch(
 		}
 		case ID.KEYBOARD_QUIT: {
 			ctx.mark.clear();
-			const pos = el.selectionEnd ?? el.selectionStart ?? 0;
-			el.setSelectionRange(pos, pos);
+			const point = el.selectionDirection === "backward"
+				? (el.selectionStart ?? 0)
+				: (el.selectionEnd ?? 0);
+			el.setSelectionRange(point, point);
 			return;
 		}
 	}
