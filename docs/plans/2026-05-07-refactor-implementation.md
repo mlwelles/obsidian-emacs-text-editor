@@ -166,6 +166,8 @@ existing logical-line logic if no CM6 view is available."
 
 Source: upstream commit `9982a26` (PR #20), partial port. The substantive selection-stability fix in #20 (computing destinations directly instead of select→move→re-expand) is mostly absorbed by Task 0.1 for the line-edge cases; the remaining piece worth porting is the mousedown listener that cancels mark mode, matching keyboard-quit semantics.
 
+> **Plan note (revised 2026-05-07):** The literal upstream PR #20 only cleared the mark on mousedown. The fork's `keyboardQuit` cancels both the mark AND the yank-pop session, and a mouse click is at least as strong a "doing something else" signal as `C-g`. Without canceling the yank-pop session, a `yank → click → M-y` sequence operates on stale `yankStart`/`yankEnd` positions. The handler matches `keyboardQuit`'s precedent.
+
 **Files:**
 - Modify: `main.ts` (`onload`)
 
@@ -174,7 +176,11 @@ Source: upstream commit `9982a26` (PR #20), partial port. The substantive select
 In `onload`, immediately after `console.log('loading plugin: Emacs text editor');` (main.ts:29), add:
 
 ```ts
+		// Any mousedown anywhere cancels mark-mode and yank-pop session,
+		// matching emacs (where keyboardQuit does both) and Obsidian's
+		// own selection-cancel behavior. Cheap no-op when neither is active.
 		this.registerDomEvent(document, "mousedown", () => {
+			this.cancelYankPop();
 			this.selectFrom = undefined;
 		});
 ```

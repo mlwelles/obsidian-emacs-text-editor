@@ -31,6 +31,13 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	onload() {
 		this.killRing = new Array<string>(this.killRingMaxSize)
 		console.log('loading plugin: Emacs text editor');
+		// Any mousedown anywhere cancels mark-mode and yank-pop session,
+		// matching emacs (where keyboardQuit does both) and Obsidian's
+		// own selection-cancel behavior. Cheap no-op when neither is active.
+		this.registerDomEvent(document, "mousedown", () => {
+			this.cancelYankPop();
+			this.selectFrom = undefined;
+		});
 		this.addCommand({
 			id: 'forward-char',
 			name: 'Forward char',
