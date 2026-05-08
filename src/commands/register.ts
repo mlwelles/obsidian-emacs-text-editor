@@ -7,7 +7,7 @@ export function registerCommands(plugin: Plugin, commands: CommandDef[]): void {
 			id: cmd.id,
 			name: cmd.name,
 			hotkeys: cmd.hotkeys,
-			editorCallback: (editor, view) => cmd.editorCallback(editor, view, plugin),
+			editorCallback: (editor, view) => cmd.editorCallback(editor, view),
 		});
 	}
 }
