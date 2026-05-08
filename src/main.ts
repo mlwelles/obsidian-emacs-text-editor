@@ -10,6 +10,7 @@ import {
 } from "./commands/ids";
 import type {CommandDef} from "./commands/definitions";
 import {registerCommands} from "./commands/register";
+import {KillRing} from "./kill-ring/kill-ring";
 
 type MarkdownViewWithCM = MarkdownView & { editor?: { cm?: EditorView } };
 
@@ -23,19 +24,14 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	private logger: Logger = createLogger("emacs-text-editor", () => this.debugEnabled);
 	extendLastKill = false
 	extendLastKillBackwards = false
-	killRing: string[] = []
-	killRingEndIndex = -1
-	killRingMaxSize = 120 // Same default size as emacs
+	private readonly killRing = new KillRing(120);
 	lastCommandInvoked?: CommandId = undefined
 	yankEnd?: EditorPosition = undefined
 	// TODO: Consider possibility migrate to native selection mechanism
 	selectFrom?: EditorPosition = undefined
-	yankIndex = -1
-	yankPopIndex = -1
 	yankStart?: EditorPosition = undefined
 
 	onload() {
-		this.killRing = new Array<string>(this.killRingMaxSize)
 		console.log("loading plugin: Emacs text editor");
 		// Any mousedown anywhere cancels mark-mode and yank-pop session,
 		// matching emacs (where keyboardQuit does both) and Obsidian's
@@ -97,32 +93,20 @@ export default class EmacsTextEditorPlugin extends Plugin {
 
 
 	async killRingSave(text: string) {
-		if (this.extendLastKill && this.killRing[this.yankIndex]) {
-			this.logger.debug("extending last kill")
-			const lastKill = this.killRing[this.yankIndex]
-			if (this.extendLastKillBackwards) {
-				text = text + lastKill
-			} else {
-				text = lastKill + text
-			}
-		} else {
-			this.yankIndex++
-			if (this.yankIndex >= this.killRingMaxSize) {
-				this.yankIndex = 0
-			}
-			if (this.yankIndex > this.killRingEndIndex) {
-				this.killRingEndIndex = this.yankIndex
-			}
-		}
-		this.killRing[this.yankIndex] = text
-		this.logger.debug("kill ring index " + this.yankIndex + " text now : " + text)
-		const clipboardText = await navigator.clipboard.readText()
-		if (clipboardText === text) {
+		this.killRing.save(text, {
+			extendForward: this.extendLastKill,
+			extendBackward: this.extendLastKillBackwards,
+		});
+		const stored = this.killRing.current();
+		if (stored === undefined) {
 			return;
 		}
-		await navigator.clipboard.writeText(text);
-		this.logger.debug("wrote text to navigator clipboard: " + text)
-
+		const clipboardText = await navigator.clipboard.readText();
+		if (clipboardText === stored) {
+			return;
+		}
+		await navigator.clipboard.writeText(stored);
+		this.logger.debug("wrote text to navigator clipboard: " + stored);
 	}
 
 	cancelSelect(editor: Editor) {
@@ -204,7 +188,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		this.logger.debug("started yank")
 		this.cancelYankPop();
 		const clipboardText = await navigator.clipboard.readText();
-		const yankText = this.killRing[this.yankIndex]
+		const yankText = this.killRing.current()
 		if (yankText !== clipboardText) {
 			await this.killRingSave(clipboardText)
 		}
@@ -220,12 +204,10 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		this.yankStart = position;
 		editor.setCursor(this.yankStart.line, this.yankStart.ch + clipboardText.length);
 		this.yankEnd = editor.getCursor()
-		this.yankPopIndex = this.yankIndex - 1;
 		this.logger.debug("yanked '" + yankText + "'")
 	}
 
 	cancelYankPop() {
-		this.yankPopIndex = this.yankIndex;
 		this.yankStart = undefined;
 		this.yankEnd = undefined;
 		this.logger.debug("yank pop stopped")
@@ -233,23 +215,21 @@ export default class EmacsTextEditorPlugin extends Plugin {
 
 	async yankPop(editor: Editor) {
 		this.logger.debug("yank pop started")
-		if (this.yankStart === undefined || this.yankEnd === undefined || this.yankIndex < 0) {
+		if (this.yankStart === undefined || this.yankEnd === undefined) {
 			this.logger.debug("can't yank pop")
 			return;
 		}
-		if (this.yankPopIndex < 0) {
-			this.yankPopIndex = this.killRingEndIndex
-			this.logger.debug("yank pop index less than zero, setting to kill ring end index " + this.yankPopIndex)
+		const yankPopText = this.killRing.rotate();
+		if (yankPopText === undefined) {
+			return;
 		}
-		const yankPopText = this.killRing[this.yankPopIndex];
 		this.logger.debug("yank pop text: " + yankPopText)
 		this.cancelSelect(editor);
 		editor.setSelection(this.yankStart, this.yankEnd)
 		editor.replaceSelection(yankPopText);
 		editor.setCursor(this.yankStart.line, this.yankStart.ch + yankPopText.length);
 		this.yankEnd = editor.getCursor()
-		this.yankPopIndex--;
-		this.logger.debug("yank poppped '" + yankPopText + "'")
+		this.logger.debug("yank popped '" + yankPopText + "'")
 	}
 
 	setMark(editor: Editor) {
