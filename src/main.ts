@@ -1,4 +1,4 @@
-import {Editor, EditorPosition, MarkdownView, Plugin} from "obsidian";
+import {Editor, MarkdownView, Plugin} from "obsidian";
 import {EditorView} from "@codemirror/view";
 import {EditorSelection} from "@codemirror/state";
 import {createLogger, Logger} from "./log";
@@ -12,6 +12,7 @@ import type {CommandDef} from "./commands/definitions";
 import {registerCommands} from "./commands/register";
 import {KillRing} from "./kill-ring/kill-ring";
 import {YankPopSession} from "./kill-ring/yank-pop";
+import {MarkState} from "./selection/mark";
 
 type MarkdownViewWithCM = MarkdownView & { editor?: { cm?: EditorView } };
 
@@ -28,7 +29,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	private readonly killRing = new KillRing(120);
 	lastCommandInvoked?: CommandId = undefined
 	// TODO: Consider possibility migrate to native selection mechanism
-	selectFrom?: EditorPosition = undefined
+	readonly mark = new MarkState();
 	private readonly yankPopSession = new YankPopSession();
 
 	onload() {
@@ -38,7 +39,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		// own selection-cancel behavior. Cheap no-op when neither is active.
 		this.registerDomEvent(document, "mousedown", () => {
 			this.cancelYankPop();
-			this.selectFrom = undefined;
+			this.mark.clear();
 		});
 		registerCommands(this, buildCommands(this));
 	}
@@ -59,7 +60,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	}
 
 	withSelectionUpdate(editor: Editor, callback: () => void) {
-		if (this.selectFrom !== undefined) {
+		if (this.mark.isActive()) {
 			editor.setSelection(editor.getCursor())
 		}
 
@@ -69,10 +70,10 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	}
 
 	extendSelection(editor: Editor) {
-		if (this.selectFrom === undefined) {
+		const start = this.mark.origin()
+		if (start === undefined) {
 			return
 		}
-		const start = this.selectFrom
 		const end = editor.getCursor()
 		this.logger.debug("extending selection to cursor at " + JSON.stringify(end))
 		editor.setSelection(start, end)
@@ -112,11 +113,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	cancelSelect(editor: Editor) {
 		this.logger.debug("clearing selection")
 		editor.setSelection(editor.getCursor(), editor.getCursor());
-		this.selectFrom = undefined;
-	}
-
-	selectionIsActive(): boolean {
-		return (this.selectFrom !== undefined)
+		this.mark.clear();
 	}
 
 	async withKill(editor: Editor, callback: () => void) {
@@ -125,7 +122,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	}
 
 	async replaceSelectedText(editor: Editor, text = "", save = true) {
-		if (!this.selectionIsActive()) {
+		if (!this.mark.isActive()) {
 			return;
 		}
 		this.logger.debug("replacing selected text")
@@ -145,7 +142,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	withSelect(editor: Editor, callback: () => void) {
 		this.cancelSelect(editor);
 		const start = editor.getCursor();
-		this.selectFrom = start
+		this.mark.set(start)
 		callback();
 		const end = editor.getCursor();
 		this.logger.debug("selecting text from " + JSON.stringify(start) + " to " + JSON.stringify(end))
@@ -193,7 +190,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 			await this.killRingSave(clipboardText)
 		}
 		const position = editor.getCursor();
-		if (!this.selectionIsActive()) {
+		if (!this.mark.isActive()) {
 			this.logger.debug("inserting text at position " + position + ": " + clipboardText)
 			editor.replaceRange(clipboardText, position);
 		} else {
@@ -236,11 +233,12 @@ export default class EmacsTextEditorPlugin extends Plugin {
 
 	setMark(editor: Editor) {
 		/*  start new selection from cursor if already started */
-		if (this.selectionIsActive()) {
+		if (this.mark.isActive()) {
 			this.cancelSelect(editor);
 		}
-		this.selectFrom = editor.getCursor();
-		this.logger.debug("selection start is now " + this.selectFrom)
+		const start = editor.getCursor();
+		this.mark.set(start);
+		this.logger.debug("selection start is now " + JSON.stringify(start))
 	}
 
 	keyboardQuit(editor: Editor) {
@@ -350,8 +348,9 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		const headCursor = EditorSelection.cursor(cmSelection.head, cmSelection.assoc);
 		const newRange = view.moveToLineBoundary(headCursor, forward);
 		const newPos = editor.offsetToPos(newRange.head);
-		if (this.selectFrom !== undefined) {
-			editor.setSelection(this.selectFrom, newPos);
+		const origin = this.mark.origin();
+		if (origin !== undefined) {
+			editor.setSelection(origin, newPos);
 		} else {
 			editor.setCursor(newPos);
 		}
@@ -548,7 +547,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: async (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.KILL_RING_SAVE);
-				if (!ep.selectionIsActive()) {
+				if (!ep.mark.isActive()) {
 					return;
 				}
 				await ep.killRingSave(editor.getSelection());
@@ -604,7 +603,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 				const lastLine = editor.lineCount() - 1;
 				const bufferStart = {line: 0, ch: 0};
 				const bufferEnd = {line: lastLine, ch: editor.getLine(lastLine).length};
-				ep.selectFrom = bufferStart;
+				ep.mark.set(bufferStart);
 				editor.setSelection(bufferStart, bufferEnd);
 			},
 		},
