@@ -14,12 +14,10 @@ import {KillRing} from "./kill-ring/kill-ring";
 import {YankPopSession} from "./kill-ring/yank-pop";
 import {MarkState} from "./selection/mark";
 import {RepeatDetector} from "./tracking/repeat-detector";
+import {Direction, moveToNextParagraph} from "./editor-ops/paragraph";
+import {recenterToBottom} from "./editor-ops/recenter";
 
 type MarkdownViewWithCM = MarkdownView & { editor?: { cm?: EditorView } };
-
-enum Direction {
-	Forward, Backward
-}
 
 export default class EmacsTextEditorPlugin extends Plugin {
 	// toggle to enable debug logging
@@ -244,67 +242,6 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	keyboardQuit(editor: Editor) {
 		this.cancelYankPop();
 		this.cancelSelect(editor)
-	}
-
-	recenterToBottom(editor: Editor) {
-		const cursor = editor.getCursor();
-		const range = {
-			from: {line: cursor.line, ch: cursor.ch}, to: {line: cursor.line, ch: cursor.ch}
-		};
-		editor.scrollIntoView(range, true);
-	}
-
-	moveToNextParagraph(editor: Editor, direction: Direction) {
-		const cursor = editor.getCursor();
-		const value = editor.getValue();
-		const maxOffset = value.length;
-		const currentOffset = editor.posToOffset(cursor);
-
-		if ((direction === Direction.Forward && currentOffset >= maxOffset) || (direction === Direction.Backward && currentOffset === 0)) {
-			return;
-		}
-
-		let nextParagraphOffset = direction === Direction.Forward ? maxOffset : 0;
-		let foundText = false;
-		let foundFirstBreak = false;
-
-		function isNewLine(position: number, direction: Direction): boolean {
-			if (direction === Direction.Forward) {
-				return value[position] === "\n" || (value[position] === "\r" && value[position + 1] === "\n");
-			} else {
-				return value[position] === "\n" || (position > 0 && value[position - 1] === "\r" && value[position] === "\n");
-			}
-		}
-
-		const step = direction === Direction.Forward ? 1 : -1;
-		let i = currentOffset;
-
-		while ((direction === Direction.Forward && i < maxOffset) || (direction === Direction.Backward && i > 0)) {
-			if (foundText && isNewLine(i, direction)) {
-				if (foundFirstBreak) {
-					nextParagraphOffset = direction === Direction.Forward ? i : i + 1;
-					if ((direction === Direction.Forward && value[i] === "\r") || (direction === Direction.Backward && i > 0 && value[i - 1] === "\r")) {
-						nextParagraphOffset += direction === Direction.Forward ? 1 : -1;
-					}
-					break;
-				} else {
-					foundFirstBreak = true;
-					i += step;
-					continue;
-				}
-			} else {
-				foundFirstBreak = false;
-			}
-
-			if (value[i] !== "\n" && value[i] !== "\r" && value[i] !== " ") {
-				foundText = true;
-			}
-
-			i += step;
-		}
-
-		const newPos = editor.offsetToPos(nextParagraphOffset);
-		editor.setCursor(newPos);
 	}
 
 	// TODO Task 1.8: revisit visibility after editor-ops extraction.
@@ -644,7 +581,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.RECENTER_TOP_BOTTOM);
-				ep.recenterToBottom(editor);
+				recenterToBottom(editor);
 			},
 		},
 		{
@@ -664,7 +601,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.FORWARD_PARAGRAPH);
 				ep.withSelectionUpdate(editor, () => {
-					ep.moveToNextParagraph(editor, Direction.Forward);
+					moveToNextParagraph(editor, Direction.Forward);
 				});
 			},
 		},
@@ -676,7 +613,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.BACKWARD_PARAGRAPH);
 				ep.withSelectionUpdate(editor, () => {
-					ep.moveToNextParagraph(editor, Direction.Backward);
+					moveToNextParagraph(editor, Direction.Backward);
 				});
 			},
 		},
