@@ -327,6 +327,15 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'transpose-chars',
+			name: 'Transpose chars',
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.commandInvoked('transpose-chars')
+				this.transposeChars(editor)
+			}
+		});
+
+		this.addCommand({
 			id: 'forward-paragraph',
 			name: 'Forward paragraph',
 			hotkeys: [{modifiers: ["Alt", "Shift"], key: "]"}],
@@ -636,6 +645,31 @@ export default class EmacsTextEditorPlugin extends Plugin {
 
 		const newPos = editor.offsetToPos(nextParagraphOffset);
 		editor.setCursor(newPos);
+	}
+
+	private transposeChars(editor: Editor) {
+		this.cancelSelect(editor);
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		if (line.length < 2 || cursor.ch === 0) {
+			return;
+		}
+		const swapRightIndex = cursor.ch < line.length ? cursor.ch : line.length - 1;
+		const swapLeftIndex = swapRightIndex - 1;
+		const transposedLine =
+			line.slice(0, swapLeftIndex) +
+			line[swapRightIndex] +
+			line[swapLeftIndex] +
+			line.slice(swapRightIndex + 1);
+		editor.replaceRange(
+			transposedLine,
+			{line: cursor.line, ch: 0},
+			{line: cursor.line, ch: line.length},
+		);
+		editor.setCursor({
+			line: cursor.line,
+			ch: Math.min(swapRightIndex + 1, transposedLine.length),
+		});
 	}
 
 	// MarkdownView.editor.cm is undocumented Obsidian internals exposing the
