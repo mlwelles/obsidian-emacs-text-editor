@@ -1,4 +1,4 @@
-import {Editor, MarkdownView, Plugin} from "obsidian";
+import {MarkdownView, Plugin} from "obsidian";
 import {createLogger, Logger} from "./log";
 import {
 	COMMAND_IDS,
@@ -19,6 +19,21 @@ import {
 	moveToVisualLineBoundary,
 	withSelectionUpdate,
 } from "./editor-ops/movement";
+import {
+	cancelSelect,
+	keyboardQuit,
+	killLine,
+	killRegion,
+	killRingSave,
+	killWord,
+	setMark,
+	transposeChars,
+	withDelete,
+	withKill,
+	yank,
+	yankPop,
+	type KillContext,
+} from "./editor-ops/editing";
 
 export default class EmacsTextEditorPlugin extends Plugin {
 	// toggle to enable debug logging
@@ -31,6 +46,14 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	// TODO: Consider possibility migrate to native selection mechanism
 	readonly mark = new MarkState();
 	readonly yankPopSession = new YankPopSession();
+	readonly killCtx: KillContext = {
+		killRing: this.killRing,
+		mark: this.mark,
+		yankPopSession: this.yankPopSession,
+		logger: this.logger,
+		extendLastKill: () => this.extendLastKill,
+		extendLastKillBackwards: () => this.extendLastKillBackwards,
+	};
 
 	onload() {
 		console.log("loading plugin: Emacs text editor");
@@ -38,7 +61,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		// matching emacs (where keyboardQuit does both) and Obsidian's
 		// own selection-cancel behavior. Cheap no-op when neither is active.
 		this.registerDomEvent(document, "mousedown", () => {
-			this.cancelYankPop();
+			this.yankPopSession.cancel();
 			this.mark.clear();
 		});
 		registerCommands(this, buildCommands(this));
@@ -47,7 +70,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	commandInvoked(id: CommandId) {
 		this.logger.debug("command invoked: " + id)
 		if (id !== COMMAND_IDS.YANK_POP) {
-			this.cancelYankPop()
+			this.yankPopSession.cancel();
 		}
 		const {isRepeat} = this.repeats.track(id)
 		this.extendLastKill = isRepeat && COMMANDS_THAT_EXTEND_LAST_KILL_FORWARD.has(id)
@@ -57,198 +80,6 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	onunload() {
 		console.log('unloading plugin: Emacs text editor');
 	}
-
-	async withDelete(editor: Editor, callback: () => void) {
-		const cursorBefore = editor.getCursor()
-		callback()
-		const cursorAfter = editor.getCursor()
-		editor.setSelection(cursorBefore, cursorAfter)
-		this.logger.debug("set selection from " + cursorBefore + " to " + cursorAfter + ", selected text: " + editor.getSelection())
-		this.logger.debug("seplacing selection with empty string")
-		editor.replaceSelection("")
-		this.cancelSelect(editor)
-	}
-
-
-	async killRingSave(text: string) {
-		this.killRing.save(text, {
-			extendForward: this.extendLastKill,
-			extendBackward: this.extendLastKillBackwards,
-		});
-		const stored = this.killRing.current();
-		if (stored === undefined) {
-			return;
-		}
-		const clipboardText = await navigator.clipboard.readText();
-		if (clipboardText === stored) {
-			return;
-		}
-		await navigator.clipboard.writeText(stored);
-		this.logger.debug("wrote text to navigator clipboard: " + stored);
-	}
-
-	cancelSelect(editor: Editor) {
-		this.logger.debug("clearing selection")
-		editor.setSelection(editor.getCursor(), editor.getCursor());
-		this.mark.clear();
-	}
-
-	async withKill(editor: Editor, callback: () => void) {
-		this.withSelect(editor, callback)
-		await this.replaceSelectedText(editor, "", true)
-	}
-
-	async replaceSelectedText(editor: Editor, text = "", save = true) {
-		if (!this.mark.isActive()) {
-			return;
-		}
-		this.logger.debug("replacing selected text")
-		if (!text) {
-			text = ""
-		}
-		if (save) {
-			const selectedText = editor.getSelection()
-			this.logger.debug("saving selected text to kill ring: " + selectedText)
-			await this.killRingSave(selectedText)
-		}
-		editor.replaceSelection(text);
-		this.logger.debug("replaced selected text with '" + text + "'")
-		this.cancelSelect(editor);
-	}
-
-	withSelect(editor: Editor, callback: () => void) {
-		this.cancelSelect(editor);
-		const start = editor.getCursor();
-		this.mark.set(start)
-		callback();
-		const end = editor.getCursor();
-		this.logger.debug("selecting text from " + JSON.stringify(start) + " to " + JSON.stringify(end))
-		editor.setSelection(start, end);
-		this.logger.debug("selected text is now: " + editor.getSelection())
-
-	}
-
-	async killWord(editor: Editor) {
-		this.cancelSelect(editor);
-		await this.withKill(editor, () => {
-			editor.exec("goWordRight");
-		});
-	}
-
-	async killLine(editor: Editor) {
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		this.logger.debug("kill-line - line is '" + line + "'")
-		if (line === '') {
-			await this.withKill(editor, () => {
-				editor.exec("goRight")
-			})
-			return
-		}
-		this.logger.debug("kill-line - cursor is " + JSON.stringify(cursor))
-		const textToBeRetained = line.slice(0, cursor.ch);
-		const textToBeCut = line.slice(cursor.ch);
-		await this.killRingSave(textToBeCut)
-		this.logger.debug("kill-line - setting line " + cursor.line + " to '" + textToBeRetained + "'")
-		editor.setLine(cursor.line, textToBeRetained);
-		editor.setCursor(cursor, cursor.ch);
-	}
-
-	async killRegion(editor: Editor) {
-		await this.replaceSelectedText(editor, "", true)
-	}
-
-	async yank(editor: Editor) {
-		this.logger.debug("started yank")
-		this.cancelYankPop();
-		const clipboardText = await navigator.clipboard.readText();
-		const yankText = this.killRing.current()
-		if (yankText !== clipboardText) {
-			await this.killRingSave(clipboardText)
-		}
-		const position = editor.getCursor();
-		if (!this.mark.isActive()) {
-			this.logger.debug("inserting text at position " + position + ": " + clipboardText)
-			editor.replaceRange(clipboardText, position);
-		} else {
-			this.logger.debug("replacing selection with: " + clipboardText)
-			editor.replaceSelection(clipboardText);
-			this.cancelSelect(editor);
-		}
-		const newEnd = {line: position.line, ch: position.ch + clipboardText.length};
-		editor.setCursor(newEnd);
-		this.yankPopSession.start(position, newEnd);
-		this.logger.debug("yanked '" + yankText + "'")
-	}
-
-	cancelYankPop() {
-		this.yankPopSession.cancel();
-		this.logger.debug("yank pop stopped")
-	}
-
-	async yankPop(editor: Editor) {
-		this.logger.debug("yank pop started")
-		const range = this.yankPopSession.range();
-		if (!range) {
-			this.logger.debug("can't yank pop")
-			return;
-		}
-		const yankPopText = this.killRing.rotate();
-		if (yankPopText === undefined) {
-			this.logger.debug("kill ring empty")
-			return;
-		}
-		this.logger.debug("yank pop text: " + yankPopText)
-		this.cancelSelect(editor);
-		editor.setSelection(range.start, range.end)
-		editor.replaceSelection(yankPopText);
-		const newEnd = {line: range.start.line, ch: range.start.ch + yankPopText.length};
-		editor.setCursor(newEnd);
-		this.yankPopSession.updateEnd(newEnd);
-		this.logger.debug("yank popped '" + yankPopText + "'")
-	}
-
-	setMark(editor: Editor) {
-		/*  start new selection from cursor if already started */
-		if (this.mark.isActive()) {
-			this.cancelSelect(editor);
-		}
-		const start = editor.getCursor();
-		this.mark.set(start);
-		this.logger.debug("selection start is now " + JSON.stringify(start))
-	}
-
-	keyboardQuit(editor: Editor) {
-		this.cancelYankPop();
-		this.cancelSelect(editor)
-	}
-
-	// TODO Task 1.8: revisit visibility after editor-ops extraction.
-	transposeChars(editor: Editor) {
-		this.cancelSelect(editor);
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		if (line.length < 2 || cursor.ch === 0) {
-			return;
-		}
-		const swapRightIndex = cursor.ch < line.length ? cursor.ch : line.length - 1;
-		const swapLeftIndex = swapRightIndex - 1;
-		const transposedLine =
-			line.slice(0, swapLeftIndex) +
-			line[swapRightIndex] +
-			line[swapLeftIndex] +
-			line.slice(swapRightIndex + 1);
-		editor.replaceRange(
-			transposedLine,
-			{line: cursor.line, ch: 0},
-			{line: cursor.line, ch: line.length},
-		);
-		editor.setCursor({
-			line: cursor.line,
-			ch: Math.min(swapRightIndex + 1, transposedLine.length),
-		});
-	}
-
 }
 
 function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
@@ -261,7 +92,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.FORWARD_CHAR);
 				withSelectionUpdate(editor, ep.mark, ep.logger, () => {
-					ep.cancelYankPop();
+					ep.yankPopSession.cancel();
 					editor.exec("goRight");
 				});
 			},
@@ -394,7 +225,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: async (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.KILL_LINE);
-				await ep.killLine(editor);
+				await killLine(editor, ep.killCtx);
 			},
 		},
 		{
@@ -404,7 +235,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: async (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.DELETE_CHAR);
-				await ep.withDelete(editor, () => {
+				await withDelete(editor, ep.killCtx, () => {
 					editor.exec("goRight");
 				});
 			},
@@ -416,9 +247,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: async (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.KILL_WORD);
-				await ep.withKill(editor, () => {
-					editor.exec("goWordRight");
-				});
+				await killWord(editor, ep.killCtx);
 			},
 		},
 		{
@@ -428,7 +257,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: async (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.BACKWARD_KILL_WORD);
-				await ep.withKill(editor, () => {
+				await withKill(editor, ep.killCtx, () => {
 					editor.exec("goWordLeft");
 				});
 			},
@@ -443,8 +272,8 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 				if (!ep.mark.isActive()) {
 					return;
 				}
-				await ep.killRingSave(editor.getSelection());
-				ep.cancelSelect(editor);
+				await killRingSave(editor.getSelection(), ep.killCtx);
+				cancelSelect(editor, ep.killCtx);
 			},
 		},
 		{
@@ -454,7 +283,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: async (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.KILL_REGION);
-				await ep.killRegion(editor);
+				await killRegion(editor, ep.killCtx);
 			},
 		},
 		{
@@ -464,7 +293,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: async (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.YANK);
-				await ep.yank(editor);
+				await yank(editor, ep.killCtx);
 			},
 		},
 		{
@@ -474,7 +303,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: async (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.YANK_POP);
-				await ep.yankPop(editor);
+				await yankPop(editor, ep.killCtx);
 			},
 		},
 		{
@@ -484,7 +313,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.SET_MARK_COMMAND);
-				ep.setMark(editor);
+				setMark(editor, ep.killCtx);
 			},
 		},
 		{
@@ -507,7 +336,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.KEYBOARD_QUIT);
-				ep.keyboardQuit(editor);
+				keyboardQuit(editor, ep.killCtx);
 			},
 		},
 		{
@@ -546,7 +375,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.TRANSPOSE_CHARS);
-				ep.transposeChars(editor);
+				transposeChars(editor, ep.killCtx);
 			},
 		},
 		{
