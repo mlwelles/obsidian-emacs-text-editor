@@ -2,16 +2,20 @@ import {Editor, EditorPosition, MarkdownView, Plugin} from "obsidian";
 import {EditorView} from "@codemirror/view";
 import {EditorSelection} from "@codemirror/state";
 import {createLogger, Logger} from "./log";
+import {
+	COMMAND_IDS,
+	COMMANDS_THAT_EXTEND_LAST_KILL_BACKWARD,
+	COMMANDS_THAT_EXTEND_LAST_KILL_FORWARD,
+	type CommandId,
+} from "./commands/ids";
+import type {CommandDef} from "./commands/definitions";
+import {registerCommands} from "./commands/register";
 
 type MarkdownViewWithCM = MarkdownView & { editor?: { cm?: EditorView } };
 
 enum Direction {
 	Forward, Backward
 }
-
-const ExtendLastKillOnRepeatCommands = ['kill-word', 'backward-kill-word', 'kill-line']
-
-const ExtendLastKillBackwardsOnRepeatCommands = ['backwards-kill-word']
 
 export default class EmacsTextEditorPlugin extends Plugin {
 	// toggle to enable debug logging
@@ -22,7 +26,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	killRing: string[] = []
 	killRingEndIndex = -1
 	killRingMaxSize = 120 // Same default size as emacs
-	lastCommandInvoked?: string = undefined
+	lastCommandInvoked?: CommandId = undefined
 	yankEnd?: EditorPosition = undefined
 	// TODO: Consider possibility migrate to native selection mechanism
 	selectFrom?: EditorPosition = undefined
@@ -32,7 +36,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 
 	onload() {
 		this.killRing = new Array<string>(this.killRingMaxSize)
-		console.log('loading plugin: Emacs text editor');
+		console.log("loading plugin: Emacs text editor");
 		// Any mousedown anywhere cancels mark-mode and yank-pop session,
 		// matching emacs (where keyboardQuit does both) and Obsidian's
 		// own selection-cancel behavior. Cheap no-op when neither is active.
@@ -40,336 +44,17 @@ export default class EmacsTextEditorPlugin extends Plugin {
 			this.cancelYankPop();
 			this.selectFrom = undefined;
 		});
-		this.addCommand({
-			id: 'forward-char',
-			name: 'Forward char',
-			hotkeys: [{modifiers: ["Ctrl"], key: "f"}],
-			editorCallback: (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked("forward-char")
-				this.withSelectionUpdate(editor, () => {
-					this.cancelYankPop();
-					editor.exec("goRight")
-				})
-			}
-		});
-
-		this.addCommand({
-			id: 'backward-char',
-			name: 'Backward char',
-			hotkeys: [{modifiers: ["Ctrl"], key: "b"}],
-			editorCallback: (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked("backward-char")
-				this.withSelectionUpdate(editor, () => {
-					editor.exec("goLeft")
-				})
-			}
-		});
-
-		this.addCommand({
-			id: 'next-line',
-			name: 'Next line',
-			hotkeys: [{modifiers: ["Ctrl"], key: "n"}],
-			editorCallback: (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked("next-line")
-				this.withSelectionUpdate(editor, () => {
-					editor.exec("goDown")
-				})
-			}
-		});
-
-		this.addCommand({
-			id: 'previous-line',
-			name: 'Previous line',
-			hotkeys: [{modifiers: ["Ctrl"], key: "p"}],
-			editorCallback: (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked("previous-line")
-				this.withSelectionUpdate(editor, () => {
-					editor.exec("goUp")
-				})
-			}
-		});
-
-		this.addCommand({
-			id: 'forward-word',
-			name: 'Forward word',
-			hotkeys: [{modifiers: ["Alt"], key: "f"}],
-			editorCallback: (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked("forward-word")
-				this.withSelectionUpdate(editor, () => {
-					editor.exec("goWordRight")
-				})
-			}
-		});
-
-		this.addCommand({
-			id: 'backward-word',
-			name: 'Backward word',
-			hotkeys: [{modifiers: ["Alt"], key: "b"}],
-			editorCallback: (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked("backward-word")
-				this.withSelectionUpdate(editor, () => {
-					editor.exec("goWordLeft")
-				})
-			}
-		});
-
-		this.addCommand({
-			id: 'move-end-of-line',
-			name: 'Move end of line',
-			hotkeys: [{modifiers: ["Ctrl"], key: "e"}],
-			editorCallback: (editor: Editor, markdownView: MarkdownView) => {
-				this.commandInvoked("move-end-of-line")
-				const view = this.getCodeMirrorView(markdownView)
-				if (view) {
-					this.moveToVisualLineBoundary(editor, view, true)
-				} else {
-					this.withSelectionUpdate(editor, () => {
-						const cursor = editor.getCursor()
-						const lineContent = editor.getLine(cursor.line)
-						editor.setCursor({line: cursor.line, ch: lineContent.length})
-					})
-				}
-			}
-		});
-
-		this.addCommand({
-			id: 'move-beginning-of-line',
-			name: 'Move cursor to beginning of line',
-			hotkeys: [{modifiers: ["Ctrl"], key: "a"}],
-			editorCallback: (editor: Editor, markdownView: MarkdownView) => {
-				this.commandInvoked("move-beginning-of-line")
-				const view = this.getCodeMirrorView(markdownView)
-				if (view) {
-					this.moveToVisualLineBoundary(editor, view, false)
-				} else {
-					this.withSelectionUpdate(editor, () => {
-						const cursor = editor.getCursor()
-						editor.setCursor({line: cursor.line, ch: 0})
-					})
-				}
-			}
-		});
-
-		this.addCommand({
-			id: 'beginning-of-buffer',
-			name: 'Beginning of buffer',
-			hotkeys: [{modifiers: ["Alt", "Shift"], key: ","}],
-			editorCallback: (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked("beginning-of-buffer")
-				this.withSelectionUpdate(editor, () => {
-					editor.exec("goStart")
-				})
-			}
-		});
-
-		this.addCommand({
-			id: 'end-of-buffer',
-			name: 'End of buffer',
-			hotkeys: [{modifiers: ["Alt", "Shift"], key: "."}],
-			editorCallback: (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked("end-of-buffer")
-				this.withSelectionUpdate(editor, () => {
-					editor.exec("goEnd")
-				})
-			}
-		});
-
-		this.addCommand({
-			id: 'kill-line',
-			name: 'Kill line',
-			hotkeys: [{modifiers: ["Ctrl"], key: "k"}],
-			editorCallback: async (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked("kill-line")
-				await this.killLine(editor)
-			}
-		});
-
-		this.addCommand({
-			id: 'delete-char',
-			name: 'Delete char',
-			hotkeys: [{modifiers: ["Ctrl"], key: "d"}],
-			editorCallback: async (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked("delete-char")
-				await this.withDelete(editor, () => {
-					editor.exec("goRight")
-				})
-			}
-		});
-
-		this.addCommand({
-			id: 'kill-word',
-			name: 'Kill word',
-			hotkeys: [{modifiers: ["Alt"], key: "d"}],
-			editorCallback: async (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked("kill-word")
-				await this.withKill(editor, () => {
-					editor.exec("goWordRight");
-				});
-			}
-		});
-
-		this.addCommand({
-			id: 'backward-kill-word',
-			name: 'Backward kill word',
-			hotkeys: [{"modifiers": ["Alt"], key: "Backspace"}],
-			editorCallback: async (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked("backward-kill-word")
-				await this.withKill(editor, () => {
-					editor.exec("goWordLeft");
-				})
-			}
-		});
-
-		this.addCommand({
-			id: 'kill-ring-save',
-			name: 'Kill ring save',
-			hotkeys: [{"modifiers": ["Alt"], key: "w"}],
-			editorCallback: async (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked('kill-ring-save')
-				if (!this.selectionIsActive()) {
-					return;
-				}
-				await this.killRingSave(editor.getSelection());
-				this.cancelSelect(editor);
-			}
-		});
-
-		this.addCommand({
-			id: 'kill-region',
-			name: 'Kill region',
-			hotkeys: [{modifiers: ["Ctrl"], key: "w"}],
-			editorCallback: async (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked('kill-region')
-				await this.killRegion(editor)
-			}
-		});
-
-		this.addCommand({
-			id: 'yank',
-			name: 'Yank',
-			hotkeys: [{modifiers: ["Ctrl"], key: "y"}],
-			editorCallback: async (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked('yank')
-				await this.yank(editor)
-			}
-		});
-
-
-		this.addCommand({
-			id: "yank-pop",
-			name: "Yank Pop",
-			hotkeys: [{modifiers: ["Alt"], key: "y"}],
-			editorCallback: async (editor, _) => {
-				this.commandInvoked("yank-pop")
-				await this.yankPop(editor)
-			}
-		});
-
-		this.addCommand({
-			id: 'set-mark-command',
-			name: 'Set mark command',
-			hotkeys: [{modifiers: ["Ctrl"], key: " "}],
-			editorCallback: (editor, _) => {
-				this.commandInvoked("set-mark-command")
-				this.setMark(editor)
-			}
-		});
-
-		this.addCommand({
-			id: 'mark-whole-buffer',
-			name: 'Mark whole buffer',
-			editorCallback: (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked('mark-whole-buffer')
-				const lastLine = editor.lineCount() - 1
-				const bufferStart = {line: 0, ch: 0}
-				const bufferEnd = {line: lastLine, ch: editor.getLine(lastLine).length}
-				this.selectFrom = bufferStart
-				editor.setSelection(bufferStart, bufferEnd)
-			}
-		});
-
-		this.addCommand({
-			id: 'keyboard-quit',
-			name: 'Keyboard-quit',
-			hotkeys: [{modifiers: ["Ctrl"], key: "g"}],
-			editorCallback: (editor, _) => {
-				this.commandInvoked("keyboard-quit")
-				this.keyboardQuit(editor)
-			}
-		});
-
-		this.addCommand({
-			id: 'undo',
-			name: 'Undo',
-			hotkeys: [{modifiers: ["Ctrl", "Shift"], key: "-"}, {modifiers: ["Ctrl"], key: "/"}],
-			editorCallback: (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked("undo")
-				editor.undo()
-			}
-		});
-
-		this.addCommand({
-			id: 'redo',
-			name: 'Redo',
-			hotkeys: [{modifiers: ["Ctrl", "Shift", "Alt"], key: "-"}, {modifiers: ["Ctrl", "Shift"], key: "/"}],
-			editorCallback: (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked("redo")
-				editor.redo()
-			}
-		});
-
-		this.addCommand({
-			id: 'recenter-top-bottom',
-			name: 'Recenter',
-			hotkeys: [{modifiers: ["Ctrl"], key: "l"}],
-			editorCallback: (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked("recenter-top-bottom")
-				this.recenterToBottom(editor)
-			}
-		});
-
-		this.addCommand({
-			id: 'transpose-chars',
-			name: 'Transpose chars',
-			editorCallback: (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked('transpose-chars')
-				this.transposeChars(editor)
-			}
-		});
-
-		this.addCommand({
-			id: 'forward-paragraph',
-			name: 'Forward paragraph',
-			hotkeys: [{modifiers: ["Alt", "Shift"], key: "]"}],
-			editorCallback: async (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked('forward-paragraph')
-				this.withSelectionUpdate(editor, () => {
-					this.moveToNextParagraph(editor, Direction.Forward)
-				})
-			}
-		});
-
-		this.addCommand({
-			id: 'backward-paragraph',
-			name: 'Backward paragraph',
-			hotkeys: [{modifiers: ["Alt", "Shift"], key: "["}],
-			editorCallback: async (editor: Editor, _: MarkdownView) => {
-				this.commandInvoked('backward-paragraph')
-				this.withSelectionUpdate(editor, () => {
-					this.moveToNextParagraph(editor, Direction.Backward)
-				})
-			}
-		});
+		registerCommands(this, buildCommands(this));
 	}
 
-	commandInvoked(id: string) {
+	commandInvoked(id: CommandId) {
 		this.logger.debug("command invoked: " + id)
-		if (id !== "yank-pop") {
+		if (id !== COMMAND_IDS.YANK_POP) {
 			this.cancelYankPop()
 		}
 		const isRepeat = this.lastCommandInvoked === id
-		this.extendLastKill = isRepeat && ExtendLastKillOnRepeatCommands.includes(id)
-		this.extendLastKillBackwards = isRepeat && ExtendLastKillBackwardsOnRepeatCommands.includes(id)
+		this.extendLastKill = isRepeat && COMMANDS_THAT_EXTEND_LAST_KILL_FORWARD.has(id)
+		this.extendLastKillBackwards = isRepeat && COMMANDS_THAT_EXTEND_LAST_KILL_BACKWARD.has(id)
 		this.lastCommandInvoked = id
 	}
 
@@ -642,7 +327,8 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		editor.setCursor(newPos);
 	}
 
-	private transposeChars(editor: Editor) {
+	// TODO Task 1.8: revisit visibility after editor-ops extraction.
+	transposeChars(editor: Editor) {
 		this.cancelSelect(editor);
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
@@ -671,11 +357,13 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	// underlying CodeMirror 6 EditorView. If a future Obsidian release changes
 	// this shape, the optional-chained access returns undefined and callers
 	// fall back to the logical-line path.
-	private getCodeMirrorView(markdownView: MarkdownView): EditorView | undefined {
+	// TODO Task 1.8: revisit visibility after editor-ops extraction.
+	getCodeMirrorView(markdownView: MarkdownView): EditorView | undefined {
 		return (markdownView as MarkdownViewWithCM).editor?.cm;
 	}
 
-	private moveToVisualLineBoundary(editor: Editor, view: EditorView, forward: boolean) {
+	// TODO Task 1.8: revisit visibility after editor-ops extraction.
+	moveToVisualLineBoundary(editor: Editor, view: EditorView, forward: boolean) {
 		const cmSelection = view.state.selection.main;
 		const headCursor = EditorSelection.cursor(cmSelection.head, cmSelection.assoc);
 		const newRange = view.moveToLineBoundary(headCursor, forward);
@@ -687,4 +375,329 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		}
 	}
 
+}
+
+function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
+	return [
+		{
+			id: COMMAND_IDS.FORWARD_CHAR,
+			name: "Forward char",
+			hotkeys: [{modifiers: ["Ctrl"], key: "f"}],
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.FORWARD_CHAR);
+				ep.withSelectionUpdate(editor, () => {
+					ep.cancelYankPop();
+					editor.exec("goRight");
+				});
+			},
+		},
+		{
+			id: COMMAND_IDS.BACKWARD_CHAR,
+			name: "Backward char",
+			hotkeys: [{modifiers: ["Ctrl"], key: "b"}],
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.BACKWARD_CHAR);
+				ep.withSelectionUpdate(editor, () => {
+					editor.exec("goLeft");
+				});
+			},
+		},
+		{
+			id: COMMAND_IDS.NEXT_LINE,
+			name: "Next line",
+			hotkeys: [{modifiers: ["Ctrl"], key: "n"}],
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.NEXT_LINE);
+				ep.withSelectionUpdate(editor, () => {
+					editor.exec("goDown");
+				});
+			},
+		},
+		{
+			id: COMMAND_IDS.PREVIOUS_LINE,
+			name: "Previous line",
+			hotkeys: [{modifiers: ["Ctrl"], key: "p"}],
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.PREVIOUS_LINE);
+				ep.withSelectionUpdate(editor, () => {
+					editor.exec("goUp");
+				});
+			},
+		},
+		{
+			id: COMMAND_IDS.FORWARD_WORD,
+			name: "Forward word",
+			hotkeys: [{modifiers: ["Alt"], key: "f"}],
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.FORWARD_WORD);
+				ep.withSelectionUpdate(editor, () => {
+					editor.exec("goWordRight");
+				});
+			},
+		},
+		{
+			id: COMMAND_IDS.BACKWARD_WORD,
+			name: "Backward word",
+			hotkeys: [{modifiers: ["Alt"], key: "b"}],
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.BACKWARD_WORD);
+				ep.withSelectionUpdate(editor, () => {
+					editor.exec("goWordLeft");
+				});
+			},
+		},
+		{
+			id: COMMAND_IDS.MOVE_END_OF_LINE,
+			name: "Move end of line",
+			hotkeys: [{modifiers: ["Ctrl"], key: "e"}],
+			editorCallback: (editor, markdownView, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.MOVE_END_OF_LINE);
+				const view = ep.getCodeMirrorView(markdownView as MarkdownView);
+				if (view) {
+					ep.moveToVisualLineBoundary(editor, view, true);
+				} else {
+					ep.withSelectionUpdate(editor, () => {
+						const cursor = editor.getCursor();
+						const lineContent = editor.getLine(cursor.line);
+						editor.setCursor({line: cursor.line, ch: lineContent.length});
+					});
+				}
+			},
+		},
+		{
+			id: COMMAND_IDS.MOVE_BEGINNING_OF_LINE,
+			name: "Move cursor to beginning of line",
+			hotkeys: [{modifiers: ["Ctrl"], key: "a"}],
+			editorCallback: (editor, markdownView, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.MOVE_BEGINNING_OF_LINE);
+				const view = ep.getCodeMirrorView(markdownView as MarkdownView);
+				if (view) {
+					ep.moveToVisualLineBoundary(editor, view, false);
+				} else {
+					ep.withSelectionUpdate(editor, () => {
+						const cursor = editor.getCursor();
+						editor.setCursor({line: cursor.line, ch: 0});
+					});
+				}
+			},
+		},
+		{
+			id: COMMAND_IDS.BEGINNING_OF_BUFFER,
+			name: "Beginning of buffer",
+			hotkeys: [{modifiers: ["Alt", "Shift"], key: ","}],
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.BEGINNING_OF_BUFFER);
+				ep.withSelectionUpdate(editor, () => {
+					editor.exec("goStart");
+				});
+			},
+		},
+		{
+			id: COMMAND_IDS.END_OF_BUFFER,
+			name: "End of buffer",
+			hotkeys: [{modifiers: ["Alt", "Shift"], key: "."}],
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.END_OF_BUFFER);
+				ep.withSelectionUpdate(editor, () => {
+					editor.exec("goEnd");
+				});
+			},
+		},
+		{
+			id: COMMAND_IDS.KILL_LINE,
+			name: "Kill line",
+			hotkeys: [{modifiers: ["Ctrl"], key: "k"}],
+			editorCallback: async (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.KILL_LINE);
+				await ep.killLine(editor);
+			},
+		},
+		{
+			id: COMMAND_IDS.DELETE_CHAR,
+			name: "Delete char",
+			hotkeys: [{modifiers: ["Ctrl"], key: "d"}],
+			editorCallback: async (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.DELETE_CHAR);
+				await ep.withDelete(editor, () => {
+					editor.exec("goRight");
+				});
+			},
+		},
+		{
+			id: COMMAND_IDS.KILL_WORD,
+			name: "Kill word",
+			hotkeys: [{modifiers: ["Alt"], key: "d"}],
+			editorCallback: async (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.KILL_WORD);
+				await ep.withKill(editor, () => {
+					editor.exec("goWordRight");
+				});
+			},
+		},
+		{
+			id: COMMAND_IDS.BACKWARD_KILL_WORD,
+			name: "Backward kill word",
+			hotkeys: [{modifiers: ["Alt"], key: "Backspace"}],
+			editorCallback: async (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.BACKWARD_KILL_WORD);
+				await ep.withKill(editor, () => {
+					editor.exec("goWordLeft");
+				});
+			},
+		},
+		{
+			id: COMMAND_IDS.KILL_RING_SAVE,
+			name: "Kill ring save",
+			hotkeys: [{modifiers: ["Alt"], key: "w"}],
+			editorCallback: async (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.KILL_RING_SAVE);
+				if (!ep.selectionIsActive()) {
+					return;
+				}
+				await ep.killRingSave(editor.getSelection());
+				ep.cancelSelect(editor);
+			},
+		},
+		{
+			id: COMMAND_IDS.KILL_REGION,
+			name: "Kill region",
+			hotkeys: [{modifiers: ["Ctrl"], key: "w"}],
+			editorCallback: async (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.KILL_REGION);
+				await ep.killRegion(editor);
+			},
+		},
+		{
+			id: COMMAND_IDS.YANK,
+			name: "Yank",
+			hotkeys: [{modifiers: ["Ctrl"], key: "y"}],
+			editorCallback: async (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.YANK);
+				await ep.yank(editor);
+			},
+		},
+		{
+			id: COMMAND_IDS.YANK_POP,
+			name: "Yank Pop",
+			hotkeys: [{modifiers: ["Alt"], key: "y"}],
+			editorCallback: async (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.YANK_POP);
+				await ep.yankPop(editor);
+			},
+		},
+		{
+			id: COMMAND_IDS.SET_MARK_COMMAND,
+			name: "Set mark command",
+			hotkeys: [{modifiers: ["Ctrl"], key: " "}],
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.SET_MARK_COMMAND);
+				ep.setMark(editor);
+			},
+		},
+		{
+			id: COMMAND_IDS.MARK_WHOLE_BUFFER,
+			name: "Mark whole buffer",
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.MARK_WHOLE_BUFFER);
+				const lastLine = editor.lineCount() - 1;
+				const bufferStart = {line: 0, ch: 0};
+				const bufferEnd = {line: lastLine, ch: editor.getLine(lastLine).length};
+				ep.selectFrom = bufferStart;
+				editor.setSelection(bufferStart, bufferEnd);
+			},
+		},
+		{
+			id: COMMAND_IDS.KEYBOARD_QUIT,
+			name: "Keyboard-quit",
+			hotkeys: [{modifiers: ["Ctrl"], key: "g"}],
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.KEYBOARD_QUIT);
+				ep.keyboardQuit(editor);
+			},
+		},
+		{
+			id: COMMAND_IDS.UNDO,
+			name: "Undo",
+			hotkeys: [{modifiers: ["Ctrl", "Shift"], key: "-"}, {modifiers: ["Ctrl"], key: "/"}],
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.UNDO);
+				editor.undo();
+			},
+		},
+		{
+			id: COMMAND_IDS.REDO,
+			name: "Redo",
+			hotkeys: [{modifiers: ["Ctrl", "Shift", "Alt"], key: "-"}, {modifiers: ["Ctrl", "Shift"], key: "/"}],
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.REDO);
+				editor.redo();
+			},
+		},
+		{
+			id: COMMAND_IDS.RECENTER_TOP_BOTTOM,
+			name: "Recenter",
+			hotkeys: [{modifiers: ["Ctrl"], key: "l"}],
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.RECENTER_TOP_BOTTOM);
+				ep.recenterToBottom(editor);
+			},
+		},
+		{
+			id: COMMAND_IDS.TRANSPOSE_CHARS,
+			name: "Transpose chars",
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.TRANSPOSE_CHARS);
+				ep.transposeChars(editor);
+			},
+		},
+		{
+			id: COMMAND_IDS.FORWARD_PARAGRAPH,
+			name: "Forward paragraph",
+			hotkeys: [{modifiers: ["Alt", "Shift"], key: "]"}],
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.FORWARD_PARAGRAPH);
+				ep.withSelectionUpdate(editor, () => {
+					ep.moveToNextParagraph(editor, Direction.Forward);
+				});
+			},
+		},
+		{
+			id: COMMAND_IDS.BACKWARD_PARAGRAPH,
+			name: "Backward paragraph",
+			hotkeys: [{modifiers: ["Alt", "Shift"], key: "["}],
+			editorCallback: (editor, _, p) => {
+				const ep = p as EmacsTextEditorPlugin;
+				ep.commandInvoked(COMMAND_IDS.BACKWARD_PARAGRAPH);
+				ep.withSelectionUpdate(editor, () => {
+					ep.moveToNextParagraph(editor, Direction.Backward);
+				});
+			},
+		},
+	];
 }
