@@ -1,6 +1,7 @@
 import {Editor, EditorPosition, MarkdownView, Plugin} from "obsidian";
 import {EditorView} from "@codemirror/view";
 import {EditorSelection} from "@codemirror/state";
+import {createLogger, Logger} from "./log";
 
 type MarkdownViewWithCM = MarkdownView & { editor?: { cm?: EditorView } };
 
@@ -15,6 +16,7 @@ const ExtendLastKillBackwardsOnRepeatCommands = ['backwards-kill-word']
 export default class EmacsTextEditorPlugin extends Plugin {
 	// toggle to enable debug logging
 	debugEnabled = false
+	private logger: Logger = createLogger("emacs-text-editor", () => this.debugEnabled);
 	extendLastKill = false
 	extendLastKillBackwards = false
 	killRing: string[] = []
@@ -361,7 +363,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	}
 
 	commandInvoked(id: string) {
-		this.logDebug("command invoked: " + id)
+		this.logger.debug("command invoked: " + id)
 		if (id !== "yank-pop") {
 			this.cancelYankPop()
 		}
@@ -369,13 +371,6 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		this.extendLastKill = isRepeat && ExtendLastKillOnRepeatCommands.includes(id)
 		this.extendLastKillBackwards = isRepeat && ExtendLastKillBackwardsOnRepeatCommands.includes(id)
 		this.lastCommandInvoked = id
-	}
-
-	logDebug(text: string) {
-		if (!this.debugEnabled) {
-			return
-		}
-		console.log("emacs-text-editor: " + text)
 	}
 
 	onunload() {
@@ -398,10 +393,10 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		}
 		const start = this.selectFrom
 		const end = editor.getCursor()
-		this.logDebug("extending selection to cursor at " + JSON.stringify(end))
+		this.logger.debug("extending selection to cursor at " + JSON.stringify(end))
 		editor.setSelection(start, end)
-		this.logDebug("selection is now from " + JSON.stringify(start) + " to " + JSON.stringify(end))
-		this.logDebug("selected text: " + editor.getSelection())
+		this.logger.debug("selection is now from " + JSON.stringify(start) + " to " + JSON.stringify(end))
+		this.logger.debug("selected text: " + editor.getSelection())
 	}
 
 	async withDelete(editor: Editor, callback: () => void) {
@@ -409,8 +404,8 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		callback()
 		const cursorAfter = editor.getCursor()
 		editor.setSelection(cursorBefore, cursorAfter)
-		this.logDebug("set selection from " + cursorBefore + " to " + cursorAfter + ", selected text: " + editor.getSelection())
-		this.logDebug("seplacing selection with empty string")
+		this.logger.debug("set selection from " + cursorBefore + " to " + cursorAfter + ", selected text: " + editor.getSelection())
+		this.logger.debug("seplacing selection with empty string")
 		editor.replaceSelection("")
 		this.cancelSelect(editor)
 	}
@@ -418,7 +413,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 
 	async killRingSave(text: string) {
 		if (this.extendLastKill && this.killRing[this.yankIndex]) {
-			this.logDebug("extending last kill")
+			this.logger.debug("extending last kill")
 			const lastKill = this.killRing[this.yankIndex]
 			if (this.extendLastKillBackwards) {
 				text = text + lastKill
@@ -435,18 +430,18 @@ export default class EmacsTextEditorPlugin extends Plugin {
 			}
 		}
 		this.killRing[this.yankIndex] = text
-		this.logDebug("kill ring index " + this.yankIndex + " text now : " + text)
+		this.logger.debug("kill ring index " + this.yankIndex + " text now : " + text)
 		const clipboardText = await navigator.clipboard.readText()
 		if (clipboardText === text) {
 			return;
 		}
 		await navigator.clipboard.writeText(text);
-		this.logDebug("wrote text to navigator clipboard: " + text)
+		this.logger.debug("wrote text to navigator clipboard: " + text)
 
 	}
 
 	cancelSelect(editor: Editor) {
-		this.logDebug("clearing selection")
+		this.logger.debug("clearing selection")
 		editor.setSelection(editor.getCursor(), editor.getCursor());
 		this.selectFrom = undefined;
 	}
@@ -464,17 +459,17 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		if (!this.selectionIsActive()) {
 			return;
 		}
-		this.logDebug("replacing selected text")
+		this.logger.debug("replacing selected text")
 		if (!text) {
 			text = ""
 		}
 		if (save) {
 			const selectedText = editor.getSelection()
-			this.logDebug("saving selected text to kill ring: " + selectedText)
+			this.logger.debug("saving selected text to kill ring: " + selectedText)
 			await this.killRingSave(selectedText)
 		}
 		editor.replaceSelection(text);
-		this.logDebug("replaced selected text with '" + text + "'")
+		this.logger.debug("replaced selected text with '" + text + "'")
 		this.cancelSelect(editor);
 	}
 
@@ -484,9 +479,9 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		this.selectFrom = start
 		callback();
 		const end = editor.getCursor();
-		this.logDebug("selecting text from " + JSON.stringify(start) + " to " + JSON.stringify(end))
+		this.logger.debug("selecting text from " + JSON.stringify(start) + " to " + JSON.stringify(end))
 		editor.setSelection(start, end);
-		this.logDebug("selected text is now: " + editor.getSelection())
+		this.logger.debug("selected text is now: " + editor.getSelection())
 
 	}
 
@@ -500,18 +495,18 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	async killLine(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
-		this.logDebug("kill-line - line is '" + line + "'")
+		this.logger.debug("kill-line - line is '" + line + "'")
 		if (line === '') {
 			await this.withKill(editor, () => {
 				editor.exec("goRight")
 			})
 			return
 		}
-		this.logDebug("kill-line - cursor is " + JSON.stringify(cursor))
+		this.logger.debug("kill-line - cursor is " + JSON.stringify(cursor))
 		const textToBeRetained = line.slice(0, cursor.ch);
 		const textToBeCut = line.slice(cursor.ch);
 		await this.killRingSave(textToBeCut)
-		this.logDebug("kill-line - setting line " + cursor.line + " to '" + textToBeRetained + "'")
+		this.logger.debug("kill-line - setting line " + cursor.line + " to '" + textToBeRetained + "'")
 		editor.setLine(cursor.line, textToBeRetained);
 		editor.setCursor(cursor, cursor.ch);
 	}
@@ -521,7 +516,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 	}
 
 	async yank(editor: Editor) {
-		this.logDebug("started yank")
+		this.logger.debug("started yank")
 		this.cancelYankPop();
 		const clipboardText = await navigator.clipboard.readText();
 		const yankText = this.killRing[this.yankIndex]
@@ -530,10 +525,10 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		}
 		const position = editor.getCursor();
 		if (!this.selectionIsActive()) {
-			this.logDebug("inserting text at position " + position + ": " + clipboardText)
+			this.logger.debug("inserting text at position " + position + ": " + clipboardText)
 			editor.replaceRange(clipboardText, position);
 		} else {
-			this.logDebug("replacing selection with: " + clipboardText)
+			this.logger.debug("replacing selection with: " + clipboardText)
 			editor.replaceSelection(clipboardText);
 			this.cancelSelect(editor);
 		}
@@ -541,35 +536,35 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		editor.setCursor(this.yankStart.line, this.yankStart.ch + clipboardText.length);
 		this.yankEnd = editor.getCursor()
 		this.yankPopIndex = this.yankIndex - 1;
-		this.logDebug("yanked '" + yankText + "'")
+		this.logger.debug("yanked '" + yankText + "'")
 	}
 
 	cancelYankPop() {
 		this.yankPopIndex = this.yankIndex;
 		this.yankStart = undefined;
 		this.yankEnd = undefined;
-		this.logDebug("yank pop stopped")
+		this.logger.debug("yank pop stopped")
 	}
 
 	async yankPop(editor: Editor) {
-		this.logDebug("yank pop started")
+		this.logger.debug("yank pop started")
 		if (this.yankStart === undefined || this.yankEnd === undefined || this.yankIndex < 0) {
-			this.logDebug("can't yank pop")
+			this.logger.debug("can't yank pop")
 			return;
 		}
 		if (this.yankPopIndex < 0) {
 			this.yankPopIndex = this.killRingEndIndex
-			console.log("yank pop index less than zero, setting to kill ring end index " + this.yankPopIndex)
+			this.logger.debug("yank pop index less than zero, setting to kill ring end index " + this.yankPopIndex)
 		}
 		const yankPopText = this.killRing[this.yankPopIndex];
-		console.log("yank pop text: " + yankPopText)
+		this.logger.debug("yank pop text: " + yankPopText)
 		this.cancelSelect(editor);
 		editor.setSelection(this.yankStart, this.yankEnd)
 		editor.replaceSelection(yankPopText);
 		editor.setCursor(this.yankStart.line, this.yankStart.ch + yankPopText.length);
 		this.yankEnd = editor.getCursor()
 		this.yankPopIndex--;
-		this.logDebug("yank poppped '" + yankPopText + "'")
+		this.logger.debug("yank poppped '" + yankPopText + "'")
 	}
 
 	setMark(editor: Editor) {
@@ -578,7 +573,7 @@ export default class EmacsTextEditorPlugin extends Plugin {
 			this.cancelSelect(editor);
 		}
 		this.selectFrom = editor.getCursor();
-		this.logDebug("selection start is now " + this.selectFrom)
+		this.logger.debug("selection start is now " + this.selectFrom)
 	}
 
 	keyboardQuit(editor: Editor) {
