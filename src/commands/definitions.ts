@@ -44,7 +44,6 @@ export function buildCommands(ctx: PluginContext): CommandDef[] {
 			editorCallback: (editor) => {
 				ctx.commandInvoked(COMMAND_IDS.FORWARD_CHAR);
 				withSelectionUpdate(editor, ctx.mark, ctx.logger, () => {
-					ctx.yankPopSession.cancel();
 					editor.exec("goRight");
 				});
 			},

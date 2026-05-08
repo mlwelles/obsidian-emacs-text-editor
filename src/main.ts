@@ -13,7 +13,7 @@ import {KillRing} from "./kill-ring/kill-ring";
 import {YankPopSession} from "./kill-ring/yank-pop";
 import {MarkState} from "./selection/mark";
 import {RepeatDetector} from "./tracking/repeat-detector";
-import type {KillContext} from "./editor-ops/editing";
+import {cancelYankPop, type KillContext} from "./editor-ops/editing";
 
 export default class EmacsTextEditorPlugin extends Plugin implements PluginContext {
 	// toggle to enable debug logging
@@ -40,7 +40,7 @@ export default class EmacsTextEditorPlugin extends Plugin implements PluginConte
 		// matching emacs (where keyboardQuit does both) and Obsidian's
 		// own selection-cancel behavior. Cheap no-op when neither is active.
 		this.registerDomEvent(document, "mousedown", () => {
-			this.yankPopSession.cancel();
+			cancelYankPop(this.killCtx);
 			this.mark.clear();
 		});
 		registerCommands(this, buildCommands(this));
@@ -53,7 +53,7 @@ export default class EmacsTextEditorPlugin extends Plugin implements PluginConte
 	commandInvoked(id: CommandId): void {
 		this.logger.debug("command invoked: " + id);
 		if (id !== COMMAND_IDS.YANK_POP) {
-			this.yankPopSession.cancel();
+			cancelYankPop(this.killCtx);
 		}
 		const {isRepeat} = this.repeats.track(id);
 		this.extendLastKill = isRepeat && COMMANDS_THAT_EXTEND_LAST_KILL_FORWARD.has(id);

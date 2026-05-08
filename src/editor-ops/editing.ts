@@ -36,6 +36,11 @@ export function cancelSelect(editor: Editor, ctx: KillContext): void {
 	ctx.mark.clear();
 }
 
+export function cancelYankPop(ctx: KillContext): void {
+	ctx.yankPopSession.cancel();
+	ctx.logger.debug("yank pop stopped");
+}
+
 export async function withDelete(editor: Editor, ctx: KillContext, callback: () => void): Promise<void> {
 	const cursorBefore = editor.getCursor();
 	callback();
@@ -111,8 +116,7 @@ export async function killRegion(editor: Editor, ctx: KillContext): Promise<void
 
 export async function yank(editor: Editor, ctx: KillContext): Promise<void> {
 	ctx.logger.debug("started yank");
-	ctx.yankPopSession.cancel();
-	ctx.logger.debug("yank pop stopped");
+	cancelYankPop(ctx);
 	const clipboardText = await navigator.clipboard.readText();
 	const yankText = ctx.killRing.current();
 	if (yankText !== clipboardText) {
@@ -166,8 +170,7 @@ export function setMark(editor: Editor, ctx: KillContext): void {
 }
 
 export function keyboardQuit(editor: Editor, ctx: KillContext): void {
-	ctx.yankPopSession.cancel();
-	ctx.logger.debug("yank pop stopped");
+	cancelYankPop(ctx);
 	cancelSelect(editor, ctx);
 }
 
