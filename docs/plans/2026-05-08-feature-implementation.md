@@ -2299,7 +2299,7 @@ The current README is the original Klojer fork's table. Replace with a feature-c
 
 - [ ] **Step 1: Rewrite `README.md`**
 
-Use the structure from the deferred rebrand spec (`docs/superpowers/specs/2026-05-08-rebrand-to-emacs-everywhere-design.md`) as a draft if useful. Sections:
+Use the structure from the deferred rebrand spec (`docs/specs/2026-05-08-rebrand-to-emacs-everywhere-design.md`) as a draft if useful. Sections:
 
 - Headline + tagline
 - What it is / what it isn't

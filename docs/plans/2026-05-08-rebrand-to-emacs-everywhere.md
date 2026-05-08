@@ -8,7 +8,7 @@
 
 **Tech Stack:** Obsidian plugin API, TypeScript, esbuild, Make, GitHub.
 
-**Spec:** `docs/superpowers/specs/2026-05-08-rebrand-to-emacs-everywhere-design.md`
+**Spec:** `docs/specs/2026-05-08-rebrand-to-emacs-everywhere-design.md`
 
 **No tests:** This is a rebrand, not a feature. Verification is manual: `make lint`, `make build`, `make install`, then smoke-test bindings in Obsidian per `AGENTS.md` testing checklist. There is no automated test suite for this plugin (Obsidian plugins are hard to test outside the host).
 
@@ -747,7 +747,7 @@ This task spans 1-2 weeks of normal personal use. Not actionable in a single ses
 
 - [ ] **Step 1: Note any regressions or paper cuts**
 
-Keep a running list (in `docs/superpowers/notes/post-rebrand-bake.md` or similar) of any issues encountered.
+Keep a running list (in `docs/notes/post-rebrand-bake.md` or similar) of any issues encountered.
 
 - [ ] **Step 2: Cut a 1.0.1 if anything is found**
 
@@ -755,7 +755,7 @@ For any meaningful bug, branch off `main`, fix, bump `manifest.json` and `packag
 
 - [ ] **Step 3: Proceed to community-directory submission**
 
-After the bake period and any 1.0.x patches, follow the submission section of the spec (`docs/superpowers/specs/2026-05-08-rebrand-to-emacs-everywhere-design.md`, Section 4) in a separate effort.
+After the bake period and any 1.0.x patches, follow the submission section of the spec (`docs/specs/2026-05-08-rebrand-to-emacs-everywhere-design.md`, Section 4) in a separate effort.
 
 ---
 
@@ -777,7 +777,7 @@ No gaps found. Plan is ready.
 
 ## Execution
 
-Plan complete and saved to `docs/superpowers/plans/2026-05-08-rebrand-to-emacs-everywhere.md`.
+Plan complete and saved to `docs/plans/2026-05-08-rebrand-to-emacs-everywhere.md`.
 
 Two execution options:
 
