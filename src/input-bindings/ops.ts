@@ -131,6 +131,41 @@ export function killLine(el: EditableElement): string {
 	return killed;
 }
 
+export function getSelectedText(el: EditableElement): string {
+	const start = el.selectionStart ?? 0;
+	const end = el.selectionEnd ?? 0;
+	return el.value.slice(start, end);
+}
+
+export function killRegion(el: EditableElement): string {
+	const start = el.selectionStart ?? 0;
+	const end = el.selectionEnd ?? 0;
+	if (start === end) {
+		return "";
+	}
+	const killed = el.value.slice(start, end);
+	el.value = el.value.slice(0, start) + el.value.slice(end);
+	el.setSelectionRange(start, start);
+	el.dispatchEvent(new Event("input", {bubbles: true}));
+	return killed;
+}
+
+export function killRingSave(el: EditableElement): string {
+	const text = getSelectedText(el);
+	const end = el.selectionEnd ?? 0;
+	el.setSelectionRange(end, end);
+	return text;
+}
+
+export function yank(el: EditableElement, text: string): void {
+	const start = el.selectionStart ?? 0;
+	const end = el.selectionEnd ?? 0;
+	el.value = el.value.slice(0, start) + text + el.value.slice(end);
+	const next = start + text.length;
+	el.setSelectionRange(next, next);
+	el.dispatchEvent(new Event("input", {bubbles: true}));
+}
+
 function nextWordBoundary(text: string, from: number, direction: 1 | -1): number {
 	let pos = from;
 	const isWordChar = (c: string) => /\w/.test(c);

@@ -12,6 +12,10 @@ import {
 	killWord,
 	backwardKillWord,
 	killLine,
+	killRegion,
+	killRingSave,
+	yank,
+	getSelectedText,
 } from "./ops";
 
 function makeTextarea(value: string, selStart: number, selEnd = selStart): HTMLTextAreaElement {
@@ -258,5 +262,59 @@ describe("backwardKillWord", () => {
 		const killed = backwardKillWord(el);
 		expect(killed).toBe("");
 		expect(el.value).toBe("foo");
+	});
+});
+
+describe("getSelectedText", () => {
+	it("returns the selected substring", () => {
+		const el = makeTextarea("hello world", 0, 5);
+		expect(getSelectedText(el)).toBe("hello");
+	});
+
+	it("returns empty string when no selection", () => {
+		const el = makeTextarea("hello", 2, 2);
+		expect(getSelectedText(el)).toBe("");
+	});
+});
+
+describe("killRegion", () => {
+	it("removes the selected text and returns it", () => {
+		const el = makeTextarea("hello world", 6, 11);
+		const killed = killRegion(el);
+		expect(killed).toBe("world");
+		expect(el.value).toBe("hello ");
+		expect(el.selectionStart).toBe(6);
+	});
+
+	it("returns empty string when no selection", () => {
+		const el = makeTextarea("hello", 2, 2);
+		expect(killRegion(el)).toBe("");
+		expect(el.value).toBe("hello");
+	});
+});
+
+describe("killRingSave", () => {
+	it("returns the selected text without modifying the value", () => {
+		const el = makeTextarea("hello world", 6, 11);
+		const saved = killRingSave(el);
+		expect(saved).toBe("world");
+		expect(el.value).toBe("hello world");
+		expect(el.selectionStart).toBe(11); // selection collapsed to end
+	});
+});
+
+describe("yank", () => {
+	it("inserts text at cursor and advances cursor", () => {
+		const el = makeTextarea("hello ", 6);
+		yank(el, "world");
+		expect(el.value).toBe("hello world");
+		expect(el.selectionStart).toBe(11);
+	});
+
+	it("replaces selection with text", () => {
+		const el = makeTextarea("hello there", 6, 11);
+		yank(el, "world");
+		expect(el.value).toBe("hello world");
+		expect(el.selectionStart).toBe(11);
 	});
 });
