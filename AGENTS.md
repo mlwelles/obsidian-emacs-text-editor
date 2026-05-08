@@ -4,15 +4,32 @@ Guidance for AI coding agents (Claude Code, Codex, Cursor, OpenCode, Aider, Amp,
 
 ## What This Is
 
-An Obsidian plugin that emulates Emacs text-editing keybindings. Originally a fork of [Klojer/obsidian-emacs-text-editor](https://github.com/Klojer/obsidian-emacs-text-editor); the `mlwelles` fork extends it with broader binding coverage (in-input bindings, multi-chord prefix maps, global aliases) and a soft-dependency policy for plugin integrations.
+An Obsidian plugin that emulates Emacs text-editing keybindings. Originally a fork of [Klojer/obsidian-emacs-text-editor](https://github.com/Klojer/obsidian-emacs-text-editor); the `mlwelles` fork has split from upstream and extends it with broader binding coverage (in-input bindings, multi-chord prefix maps, global aliases) and a soft-dependency policy for plugin integrations.
 
 ## Repository Layout
 
-- `main.ts` — entire plugin source (single file)
+- `src/` — plugin source split by concern
+  - `src/main.ts` — Plugin class, lifecycle, wiring (under 100 lines)
+  - `src/commands/ids.ts` — typed `COMMAND_IDS` map and kill-extend predicate sets
+  - `src/commands/definitions.ts` — `buildCommands(plugin)` table of 27+ command entries
+  - `src/commands/register.ts` — `registerCommands(plugin, commands)` registrar
+  - `src/commands/plugin-context.ts` — `PluginContext` interface (decouples definitions from main.ts)
+  - `src/kill-ring/kill-ring.ts` — `KillRing` class (pure state, unit tested)
+  - `src/kill-ring/yank-pop.ts` — `YankPopSession` (pure state, unit tested)
+  - `src/selection/mark.ts` — `MarkState` (pure state, unit tested)
+  - `src/tracking/repeat-detector.ts` — `RepeatDetector` (pure state, unit tested)
+  - `src/editor-ops/movement.ts` — cursor movement + selection helpers
+  - `src/editor-ops/editing.ts` — kill/yank/transpose/mark/keyboard-quit (uses `KillContext`)
+  - `src/editor-ops/paragraph.ts` — forward/backward paragraph (pure string scanning)
+  - `src/editor-ops/recenter.ts` — `scrollIntoView` wrapper
+  - `src/log.ts` — logger factory
 - `manifest.json` — Obsidian plugin manifest
-- `esbuild.config.mjs` — bundler config; outputs `main.js`
+- `esbuild.config.mjs` — bundler config (entry: `src/main.ts`); outputs `main.js`
 - `Makefile` — build/install/uninstall targets
-- `package.json` — dev dependencies and `dev`/`build` scripts
+- `package.json` — dev dependencies and `dev`/`build`/`test`/`lint`/`typecheck` scripts
+- `vitest.config.ts` — test runner config (picks up `src/**/*.test.ts`)
+- `.github/workflows/ci.yml` — lint + typecheck + test + build on push/PR to main
+- `.github/workflows/release.yml` — GitHub release on tag push
 - `versions.json`, `version-bump.mjs` — release versioning
 - Compiled artifacts (`main.js`) are gitignored except for releases
 
@@ -30,10 +47,22 @@ Then:
 
 ```sh
 make setup      # npm install
-make lint       # eslint --fix main.ts
+make lint       # npm run lint:fix (eslint with --fix on src/**/*.ts)
 make build      # tsc typecheck + esbuild production bundle → main.js
 make install    # build + copy main.js, manifest.json into $OBSIDIAN_PLUGINS_DIR/emacs-text-editor
 make uninstall  # remove installed copy
+```
+
+Direct npm scripts:
+
+```sh
+npm run dev         # esbuild watch mode
+npm run build       # tsc typecheck + esbuild production
+npm test            # vitest run
+npm run test:watch  # vitest watch mode
+npm run lint        # eslint (read-only; CI uses this)
+npm run lint:fix    # eslint --fix (developer-side auto-fix)
+npm run typecheck   # tsc -noEmit
 ```
 
 For an iteration loop while developing, run `npm run dev` in one terminal (esbuild watch mode) and reload Obsidian (Cmd-R in the developer console, or disable+enable the plugin in settings) to pick up changes.
@@ -44,8 +73,8 @@ For an iteration loop while developing, run `npm run dev` in one terminal (esbui
 
 - `main` is the integration branch
 - Feature branches off `main`; rebase before merge when reasonable
-- Upstream remote is `upstream` (Klojer's repo); periodically merge or cherry-pick relevant fixes
-- Tag releases with semver matching `manifest.json`'s `version` field; `version-bump.mjs` keeps `manifest.json` and `versions.json` in sync
+- The fork has split from upstream Klojer; the `upstream` remote is no longer pulled from. Inherited upstream tags (`0.1.0` through `0.10.0`) were deleted. The fork's own version line starts at `0.4.0` (salvage release) and `0.5.0` (refactor checkpoint).
+- Tag releases with semver matching `manifest.json`'s `version` field; `version-bump.mjs` keeps `manifest.json` and `versions.json` in sync (run via `npm version <ver>` which triggers the `version` lifecycle script)
 
 ## Architecture Notes
 
@@ -89,14 +118,31 @@ Update this table when adding, removing, or changing soft deps. The README's "Op
 ## Coding Conventions
 
 - TypeScript strict mode (see `tsconfig.json`)
-- ESLint with `@typescript-eslint`; run `make lint` (or `npm run lint` if added) before committing
+- ESLint with `@typescript-eslint`; run `npm run lint` (read-only check) or `npm run lint:fix` (auto-fix) before committing. CI uses the read-only `lint`.
 - One feature per commit; descriptive messages in Conventional Commits style preferred but not strictly required
-- Prefer small, focused functions; extract helpers when `main.ts` exceeds ~500 lines per logical concern
+- Prefer small, focused functions; extract helpers when a single file exceeds ~500 lines per logical concern. After the 0.5.0 refactor, `src/main.ts` is intended to stay under 100 lines (wiring only); editor-ops modules target ~200 lines per concern.
 - Comment non-obvious DOM-event-hijacking logic; emacs-key collisions and capture-phase ordering are easy to misread
+- Pure-state classes (KillRing, YankPopSession, MarkState, RepeatDetector) carry unit tests; Obsidian-coupled code (editor-ops, command callbacks) is verified by manual regression in the test vault
 
 ## Testing
 
-There is no automated test suite (Obsidian plugins are notoriously hard to test outside the host). Manual test checklist for any change touching layer 2 (in-input bindings):
+### Automated tests
+
+- `npm test` — runs vitest against `src/**/*.test.ts`
+- Pure-state classes have unit-test coverage:
+  - `KillRing` (13 tests): save/current, ring wrap, extend-forward, extend-backward, rotate, head-vs-rotation invariant, save-resets-rotation
+  - `YankPopSession` (5 tests): lifecycle, range, updateEnd
+  - `MarkState` (4 tests): lifecycle, set-replaces-origin
+  - `RepeatDetector` (4 tests): isRepeat semantics, last-id tracking
+  - Logger (3 tests): prefix, predicate gating, predicate re-evaluation
+
+CI runs the full suite plus typecheck and build on every push and PR to main.
+
+### Manual regression (host-required)
+
+Obsidian-coupled code (editor-ops, command callbacks, in-input bindings when they land) has no automated coverage — Obsidian plugins are notoriously hard to test outside the host. Manual regression script at `docs/plans/MANUAL-TESTING.md` covers every command in the test vault.
+
+For changes touching layer 2 (in-input bindings, planned for 0.6.0+), the surface checklist:
 
 - Search bar (left sidebar)
 - Quick switcher (Cmd-O / Cmd-P)
