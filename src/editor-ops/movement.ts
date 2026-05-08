@@ -39,6 +39,13 @@ export function getCodeMirrorView(markdownView: MarkdownView): EditorView | unde
 	return (markdownView as MarkdownViewWithCM).editor?.cm;
 }
 
+// CodeMirror 6 represents the position at the end of a wrapped visual line
+// and the start of the next visual line as the SAME document offset; they
+// are disambiguated by the `assoc` (associativity) value on the cursor.
+// Going through Obsidian's editor.setCursor() loses `assoc`, so the cursor
+// renders at the start of the next visual line instead of the end of the
+// current one. Dispatch through the CodeMirror view directly to preserve
+// `assoc`.
 export function moveToVisualLineBoundary(
 	editor: Editor,
 	view: EditorView,
@@ -48,11 +55,18 @@ export function moveToVisualLineBoundary(
 	const cmSelection = view.state.selection.main;
 	const headCursor = EditorSelection.cursor(cmSelection.head, cmSelection.assoc);
 	const newRange = view.moveToLineBoundary(headCursor, forward);
-	const newPos = editor.offsetToPos(newRange.head);
+
 	const origin = mark.origin();
-	if (origin !== undefined) {
-		editor.setSelection(origin, newPos);
-	} else {
-		editor.setCursor(newPos);
-	}
+	const newSelection = origin !== undefined
+		? EditorSelection.create([
+			EditorSelection.range(editor.posToOffset(origin), newRange.head, newRange.assoc),
+		])
+		: EditorSelection.create([
+			EditorSelection.cursor(newRange.head, newRange.assoc),
+		]);
+
+	view.dispatch({
+		selection: newSelection,
+		scrollIntoView: true,
+	});
 }
