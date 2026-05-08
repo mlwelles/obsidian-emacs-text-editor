@@ -1,6 +1,4 @@
 import {Editor, MarkdownView, Plugin} from "obsidian";
-import {EditorView} from "@codemirror/view";
-import {EditorSelection} from "@codemirror/state";
 import {createLogger, Logger} from "./log";
 import {
 	COMMAND_IDS,
@@ -16,20 +14,23 @@ import {MarkState} from "./selection/mark";
 import {RepeatDetector} from "./tracking/repeat-detector";
 import {Direction, moveToNextParagraph} from "./editor-ops/paragraph";
 import {recenterToBottom} from "./editor-ops/recenter";
-
-type MarkdownViewWithCM = MarkdownView & { editor?: { cm?: EditorView } };
+import {
+	getCodeMirrorView,
+	moveToVisualLineBoundary,
+	withSelectionUpdate,
+} from "./editor-ops/movement";
 
 export default class EmacsTextEditorPlugin extends Plugin {
 	// toggle to enable debug logging
 	debugEnabled = false
-	private logger: Logger = createLogger("emacs-text-editor", () => this.debugEnabled);
+	readonly logger: Logger = createLogger("emacs-text-editor", () => this.debugEnabled);
 	extendLastKill = false
 	extendLastKillBackwards = false
-	private readonly killRing = new KillRing(120);
+	readonly killRing = new KillRing(120);
 	private readonly repeats = new RepeatDetector();
 	// TODO: Consider possibility migrate to native selection mechanism
 	readonly mark = new MarkState();
-	private readonly yankPopSession = new YankPopSession();
+	readonly yankPopSession = new YankPopSession();
 
 	onload() {
 		console.log("loading plugin: Emacs text editor");
@@ -55,28 +56,6 @@ export default class EmacsTextEditorPlugin extends Plugin {
 
 	onunload() {
 		console.log('unloading plugin: Emacs text editor');
-	}
-
-	withSelectionUpdate(editor: Editor, callback: () => void) {
-		if (this.mark.isActive()) {
-			editor.setSelection(editor.getCursor())
-		}
-
-		callback()
-
-		this.extendSelection(editor)
-	}
-
-	extendSelection(editor: Editor) {
-		const start = this.mark.origin()
-		if (start === undefined) {
-			return
-		}
-		const end = editor.getCursor()
-		this.logger.debug("extending selection to cursor at " + JSON.stringify(end))
-		editor.setSelection(start, end)
-		this.logger.debug("selection is now from " + JSON.stringify(start) + " to " + JSON.stringify(end))
-		this.logger.debug("selected text: " + editor.getSelection())
 	}
 
 	async withDelete(editor: Editor, callback: () => void) {
@@ -270,29 +249,6 @@ export default class EmacsTextEditorPlugin extends Plugin {
 		});
 	}
 
-	// MarkdownView.editor.cm is undocumented Obsidian internals exposing the
-	// underlying CodeMirror 6 EditorView. If a future Obsidian release changes
-	// this shape, the optional-chained access returns undefined and callers
-	// fall back to the logical-line path.
-	// TODO Task 1.8: revisit visibility after editor-ops extraction.
-	getCodeMirrorView(markdownView: MarkdownView): EditorView | undefined {
-		return (markdownView as MarkdownViewWithCM).editor?.cm;
-	}
-
-	// TODO Task 1.8: revisit visibility after editor-ops extraction.
-	moveToVisualLineBoundary(editor: Editor, view: EditorView, forward: boolean) {
-		const cmSelection = view.state.selection.main;
-		const headCursor = EditorSelection.cursor(cmSelection.head, cmSelection.assoc);
-		const newRange = view.moveToLineBoundary(headCursor, forward);
-		const newPos = editor.offsetToPos(newRange.head);
-		const origin = this.mark.origin();
-		if (origin !== undefined) {
-			editor.setSelection(origin, newPos);
-		} else {
-			editor.setCursor(newPos);
-		}
-	}
-
 }
 
 function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
@@ -304,7 +260,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.FORWARD_CHAR);
-				ep.withSelectionUpdate(editor, () => {
+				withSelectionUpdate(editor, ep.mark, ep.logger, () => {
 					ep.cancelYankPop();
 					editor.exec("goRight");
 				});
@@ -317,7 +273,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.BACKWARD_CHAR);
-				ep.withSelectionUpdate(editor, () => {
+				withSelectionUpdate(editor, ep.mark, ep.logger, () => {
 					editor.exec("goLeft");
 				});
 			},
@@ -329,7 +285,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.NEXT_LINE);
-				ep.withSelectionUpdate(editor, () => {
+				withSelectionUpdate(editor, ep.mark, ep.logger, () => {
 					editor.exec("goDown");
 				});
 			},
@@ -341,7 +297,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.PREVIOUS_LINE);
-				ep.withSelectionUpdate(editor, () => {
+				withSelectionUpdate(editor, ep.mark, ep.logger, () => {
 					editor.exec("goUp");
 				});
 			},
@@ -353,7 +309,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.FORWARD_WORD);
-				ep.withSelectionUpdate(editor, () => {
+				withSelectionUpdate(editor, ep.mark, ep.logger, () => {
 					editor.exec("goWordRight");
 				});
 			},
@@ -365,7 +321,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.BACKWARD_WORD);
-				ep.withSelectionUpdate(editor, () => {
+				withSelectionUpdate(editor, ep.mark, ep.logger, () => {
 					editor.exec("goWordLeft");
 				});
 			},
@@ -377,11 +333,11 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, markdownView, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.MOVE_END_OF_LINE);
-				const view = ep.getCodeMirrorView(markdownView as MarkdownView);
+				const view = getCodeMirrorView(markdownView as MarkdownView);
 				if (view) {
-					ep.moveToVisualLineBoundary(editor, view, true);
+					moveToVisualLineBoundary(editor, view, ep.mark, true);
 				} else {
-					ep.withSelectionUpdate(editor, () => {
+					withSelectionUpdate(editor, ep.mark, ep.logger, () => {
 						const cursor = editor.getCursor();
 						const lineContent = editor.getLine(cursor.line);
 						editor.setCursor({line: cursor.line, ch: lineContent.length});
@@ -396,11 +352,11 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, markdownView, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.MOVE_BEGINNING_OF_LINE);
-				const view = ep.getCodeMirrorView(markdownView as MarkdownView);
+				const view = getCodeMirrorView(markdownView as MarkdownView);
 				if (view) {
-					ep.moveToVisualLineBoundary(editor, view, false);
+					moveToVisualLineBoundary(editor, view, ep.mark, false);
 				} else {
-					ep.withSelectionUpdate(editor, () => {
+					withSelectionUpdate(editor, ep.mark, ep.logger, () => {
 						const cursor = editor.getCursor();
 						editor.setCursor({line: cursor.line, ch: 0});
 					});
@@ -414,7 +370,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.BEGINNING_OF_BUFFER);
-				ep.withSelectionUpdate(editor, () => {
+				withSelectionUpdate(editor, ep.mark, ep.logger, () => {
 					editor.exec("goStart");
 				});
 			},
@@ -426,7 +382,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.END_OF_BUFFER);
-				ep.withSelectionUpdate(editor, () => {
+				withSelectionUpdate(editor, ep.mark, ep.logger, () => {
 					editor.exec("goEnd");
 				});
 			},
@@ -600,7 +556,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.FORWARD_PARAGRAPH);
-				ep.withSelectionUpdate(editor, () => {
+				withSelectionUpdate(editor, ep.mark, ep.logger, () => {
 					moveToNextParagraph(editor, Direction.Forward);
 				});
 			},
@@ -612,7 +568,7 @@ function buildCommands(plugin: EmacsTextEditorPlugin): CommandDef[] {
 			editorCallback: (editor, _, p) => {
 				const ep = p as EmacsTextEditorPlugin;
 				ep.commandInvoked(COMMAND_IDS.BACKWARD_PARAGRAPH);
-				ep.withSelectionUpdate(editor, () => {
+				withSelectionUpdate(editor, ep.mark, ep.logger, () => {
 					moveToNextParagraph(editor, Direction.Backward);
 				});
 			},
