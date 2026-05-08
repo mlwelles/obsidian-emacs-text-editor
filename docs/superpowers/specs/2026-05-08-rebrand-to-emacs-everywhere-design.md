@@ -59,15 +59,16 @@ The name "Everywhere" foregrounds (1). The tagline and README cover (2).
 
 ### `package.json`
 
-- `name` → `obsidian-emacs-everywhere`
-- `version` → `1.0.0`
-- `description` → tagline (matches manifest)
-- `author` → set/verify
-- `repository`, `bugs`, `homepage` → point at `mlwelles/obsidian-emacs-everywhere`
+- `name`: `emacs-text-editor` → `obsidian-emacs-everywhere`
+- `version`: `0.3.1` → `1.0.0`
+- `description`: `Partial emulation of Emacs text editor for Obisidian` → tagline (matches manifest; fixes the "Obisidian" typo)
+- `author`: `""` → `mlwelles`
+- `license`: `GPL-3.0` (unchanged)
+- Add `repository`, `bugs`, `homepage` fields pointing at `mlwelles/obsidian-emacs-everywhere`
 
 ### `versions.json`
 
-Add `"1.0.0": "0.15.0"` entry. Existing 0.x entries retained for history.
+Already contains `"1.0.0": "0.15.0"`. No change required. (No 0.x entries exist; the file was prepared for a 1.0.0 release ahead of this rebrand.)
 
 ### `Makefile`
 
@@ -93,11 +94,11 @@ Update repo URLs and project name. Most content unchanged.
 
 ### `main.ts`
 
-Update top-of-file comment header: project name, attribution, license. No code changes for the rename itself. Command ids preserved as-is (hygiene).
+Add a top-of-file comment header: project name, attribution to Klojer's upstream, license (GPL-3.0). Currently no header exists. No code changes for the rename itself. Command ids preserved as-is (hygiene).
 
 ### `LICENSE`
 
-Add or update. MIT (Obsidian-community norm). Preserve upstream copyright; add author copyright line.
+Already present (GPL-3.0, full text, 35 KB). Project remains GPL-3.0 — the upstream is GPL-3.0 and downstream forks cannot relicense. No change to the LICENSE file. Author copyright line is added in the `main.ts` source header, not the LICENSE file.
 
 ## Migration
 
@@ -148,14 +149,13 @@ Concrete commits for the rename. Implementation plan will expand each into tasks
 5. **Commit 1 — manifest + package metadata** — `manifest.json`, `package.json`, `versions.json`.
 6. **Commit 2 — build + install paths** — `Makefile`. Verify with `make install` to test vault.
 7. **Commit 3 — source header** — `main.ts` top-of-file comment.
-8. **Commit 4 — LICENSE** — add or update.
-9. **Commit 5 — README rewrite** — full rewrite per spec above.
-10. **Commit 6 — AGENTS.md** — repo URLs and project name.
-11. **Verify locally** — `make lint`, `make build`, `make install`, smoke-test per `AGENTS.md` testing checklist (layers 1, 2, and a multi-chord).
-12. **Merge to `main`** and push.
-13. **Tag and release** — `git tag 1.0.0 && git push --tags`. Create GitHub release for `1.0.0` with `main.js` and `manifest.json` attached as assets.
-14. **Bake period** — 1-2 weeks of personal use. Capture issues for a 1.0.1.
-15. **(Separate effort)** — submit to community directory per Section 4.
+8. **Commit 4 — README rewrite** — full rewrite per spec above. (LICENSE already present and correct; no commit needed.)
+9. **Commit 5 — AGENTS.md** — repo URLs and project name.
+10. **Verify locally** — `make lint`, `make build`, `make install`, smoke-test per `AGENTS.md` testing checklist (layers 1, 2, and a multi-chord).
+11. **Merge to `main`** and push.
+12. **Tag and release** — `git tag 1.0.0 && git push --tags`. Create GitHub release for `1.0.0` with `main.js` and `manifest.json` attached as assets.
+13. **Bake period** — 1-2 weeks of personal use. Capture issues for a 1.0.1.
+14. **(Separate effort)** — submit to community directory per Section 4.
 
 ## Risks
 
