@@ -15,7 +15,7 @@
 - `docs/plans/2026-05-06-refactor-and-reorg.md` — refactor design
 - `docs/plans/2026-05-07-refactor-implementation.md` — refactor implementation
 
-**Predicate:** the refactor implementation plan has been executed; current version is `0.5.0`; `src/` tree exists with `KillRing`, `YankPopSession`, `MarkState`, `RepeatDetector`, command IDs/definitions/registrar, editor-ops modules; vitest is configured; CI workflow exists. **If any of those assumptions is false, stop and execute the refactor first.**
+**Predicate:** the refactor implementation plan has been executed; current version is `0.5.0` or later (verified at `0.5.1` as of 2026-05-08); `src/` tree exists with `KillRing`, `YankPopSession`, `MarkState`, `RepeatDetector`, command IDs/definitions/registrar, editor-ops modules; vitest is configured (29 tests passing across 5 files); CI workflow exists at `.github/workflows/ci.yml`. **If any of those assumptions is false, stop and execute the refactor first.**
 
 ---
 
@@ -60,12 +60,12 @@ Files modified by this plan:
 
 **Files:** none
 
-- [ ] **Step 1: Verify version is 0.5.0**
+- [ ] **Step 1: Verify version is 0.5.0 or later**
 
 Run: `cat manifest.json | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])"`
-Expected: `0.5.0`.
+Expected: `0.5.0` or higher (`0.5.1` as of 2026-05-08).
 
-If not, the refactor implementation plan has not been executed. Stop and run that plan first.
+If lower, the refactor implementation plan has not been executed. Stop and run that plan first.
 
 - [ ] **Step 2: Verify `src/` tree exists**
 
