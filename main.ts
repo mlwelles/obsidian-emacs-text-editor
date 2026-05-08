@@ -1,4 +1,8 @@
 import {Editor, EditorPosition, MarkdownView, Plugin} from "obsidian";
+import {EditorView} from "@codemirror/view";
+import {EditorSelection} from "@codemirror/state";
+
+type MarkdownViewWithCM = MarkdownView & { editor?: { cm?: EditorView } };
 
 enum Direction {
 	Forward, Backward
@@ -104,13 +108,18 @@ export default class EmacsTextEditorPlugin extends Plugin {
 			id: 'move-end-of-line',
 			name: 'Move end of line',
 			hotkeys: [{modifiers: ["Ctrl"], key: "e"}],
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			editorCallback: (editor: Editor, markdownView: MarkdownView) => {
 				this.commandInvoked("move-end-of-line")
-				this.withSelectionUpdate(editor, () => {
-					const cursor = editor.getCursor()
-					const lineContent = editor.getLine(cursor.line)
-					editor.setCursor({line: cursor.line, ch: lineContent.length})
-				})
+				const view = this.getCodeMirrorView(markdownView)
+				if (view) {
+					this.moveToVisualLineBoundary(editor, view, true)
+				} else {
+					this.withSelectionUpdate(editor, () => {
+						const cursor = editor.getCursor()
+						const lineContent = editor.getLine(cursor.line)
+						editor.setCursor({line: cursor.line, ch: lineContent.length})
+					})
+				}
 			}
 		});
 
@@ -118,12 +127,17 @@ export default class EmacsTextEditorPlugin extends Plugin {
 			id: 'move-beginning-of-line',
 			name: 'Move cursor to beginning of line',
 			hotkeys: [{modifiers: ["Ctrl"], key: "a"}],
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			editorCallback: (editor: Editor, markdownView: MarkdownView) => {
 				this.commandInvoked("move-beginning-of-line")
-				this.withSelectionUpdate(editor, () => {
-					const cursor = editor.getCursor()
-					editor.setCursor({line: cursor.line, ch: 0})
-				})
+				const view = this.getCodeMirrorView(markdownView)
+				if (view) {
+					this.moveToVisualLineBoundary(editor, view, false)
+				} else {
+					this.withSelectionUpdate(editor, () => {
+						const cursor = editor.getCursor()
+						editor.setCursor({line: cursor.line, ch: 0})
+					})
+				}
 			}
 		});
 
@@ -602,6 +616,26 @@ export default class EmacsTextEditorPlugin extends Plugin {
 
 		const newPos = editor.offsetToPos(nextParagraphOffset);
 		editor.setCursor(newPos);
+	}
+
+	// MarkdownView.editor.cm is undocumented Obsidian internals exposing the
+	// underlying CodeMirror 6 EditorView. If a future Obsidian release changes
+	// this shape, the optional-chained access returns undefined and callers
+	// fall back to the logical-line path.
+	private getCodeMirrorView(markdownView: MarkdownView): EditorView | undefined {
+		return (markdownView as MarkdownViewWithCM).editor?.cm;
+	}
+
+	private moveToVisualLineBoundary(editor: Editor, view: EditorView, forward: boolean) {
+		const cmSelection = view.state.selection.main;
+		const headCursor = EditorSelection.cursor(cmSelection.head, cmSelection.assoc);
+		const newRange = view.moveToLineBoundary(headCursor, forward);
+		const newPos = editor.offsetToPos(newRange.head);
+		if (this.selectFrom !== undefined) {
+			editor.setSelection(this.selectFrom, newPos);
+		} else {
+			editor.setCursor(newPos);
+		}
 	}
 
 }
