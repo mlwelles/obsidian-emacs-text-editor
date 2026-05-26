@@ -7,7 +7,7 @@ setup:
 	npm install
 
 lint: setup
-	eslint --fix main.ts
+	npm run lint:fix
 
 build: lint
 	npm run build
