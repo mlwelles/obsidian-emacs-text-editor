@@ -55,6 +55,31 @@ describe("backwardChar", () => {
 	});
 });
 
+describe("navigation with active selection (point lives at active edge)", () => {
+	it("forwardChar moves from selectionEnd when selectionDirection is forward", () => {
+		const el = makeTextarea("hello", 0);
+		el.setSelectionRange(0, 1, "forward");
+		forwardChar(el);
+		expect(el.selectionStart).toBe(2);
+		expect(el.selectionEnd).toBe(2);
+	});
+
+	it("backwardChar moves from selectionStart when selectionDirection is backward", () => {
+		const el = makeTextarea("hello", 0);
+		el.setSelectionRange(2, 4, "backward");
+		backwardChar(el);
+		expect(el.selectionStart).toBe(1);
+		expect(el.selectionEnd).toBe(1);
+	});
+
+	it("forwardWord moves from selectionEnd when selectionDirection is forward", () => {
+		const el = makeTextarea("foo bar baz", 0);
+		el.setSelectionRange(0, 3, "forward"); // "foo" selected, point at 3
+		forwardWord(el);
+		expect(el.selectionStart).toBe(7); // end of "bar"
+	});
+});
+
 describe("forwardWord", () => {
 	it("moves to end of current word", () => {
 		const el = makeTextarea("foo bar baz", 0);

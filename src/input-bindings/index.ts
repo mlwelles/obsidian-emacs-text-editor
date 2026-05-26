@@ -63,11 +63,25 @@ const KEY_SPECS: KeySpec[] = [
 	{ctrl: true, key: "g", id: ID.KEYBOARD_QUIT},
 ];
 
+// On macOS, Option (Alt) composes letter keys into glyphs (Option+d → "∂",
+// Option+f → "ƒ"), so event.key no longer equals the spec letter. event.code
+// is the physical-key identifier ("KeyD", "KeyF"), unaffected by composition
+// and layout-independent — the right thing to match for letter bindings.
+const LETTER_CODES: Record<string, string> = (() => {
+	const out: Record<string, string> = {};
+	for (const c of "abcdefghijklmnopqrstuvwxyz") {
+		out[c] = "Key" + c.toUpperCase();
+	}
+	return out;
+})();
+
 function matches(event: KeyboardEvent, spec: KeySpec): boolean {
 	if ((spec.ctrl ?? false) !== event.ctrlKey) return false;
 	if ((spec.alt ?? false) !== event.altKey) return false;
 	if ((spec.shift ?? false) !== event.shiftKey) return false;
 	if ((spec.meta ?? false) !== event.metaKey) return false;
+	const expectedCode = LETTER_CODES[spec.key.toLowerCase()];
+	if (expectedCode) return event.code === expectedCode;
 	return event.key === spec.key;
 }
 
@@ -202,8 +216,13 @@ function extendOrClear(el: HTMLInputElement | HTMLTextAreaElement, ctx: InputBin
 	}
 	const origin = ctx.mark.origin();
 	if (!origin) return;
-	// In Layer 2, mark origin's `ch` field stores the absolute offset (line is unused for inputs).
-	const start = Math.min(origin.ch, el.selectionStart ?? 0);
-	const end = Math.max(origin.ch, el.selectionStart ?? 0);
-	el.setSelectionRange(start, end);
+	// Each navigation op collapses the selection to point, so selectionStart
+	// equals point here. We must pass a direction so the next op's pointOf()
+	// can recover which end is the active edge — without it, selectionDirection
+	// resets to "none" and repeated navigation gets stuck at the first extension.
+	const point = el.selectionStart ?? 0;
+	const start = Math.min(origin.ch, point);
+	const end = Math.max(origin.ch, point);
+	const direction: "forward" | "backward" = point < origin.ch ? "backward" : "forward";
+	el.setSelectionRange(start, end, direction);
 }
