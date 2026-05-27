@@ -18,6 +18,8 @@ import {PluginDetector} from "./soft-deps/plugin-detector";
 import {CommandResolver} from "./soft-deps/command-resolver";
 import {installInputBindings} from "./input-bindings";
 import {registerWorkspaceSingleChords} from "./workspace-bindings/single-chord";
+import {PrefixDispatcher} from "./prefix-maps/dispatcher";
+import {registerPrefixCommands, buildCxPrefixMap} from "./prefix-maps/bindings";
 
 export default class EmacsTextEditorPlugin extends Plugin implements PluginContext {
 	// toggle to enable debug logging
@@ -32,6 +34,7 @@ export default class EmacsTextEditorPlugin extends Plugin implements PluginConte
 	private readonly inputRepeats = new RepeatDetector();
 	private detector!: PluginDetector;
 	private resolver!: CommandResolver;
+	private prefixDispatcher!: PrefixDispatcher;
 	readonly killCtx: KillContext = {
 		killRing: this.killRing,
 		mark: this.mark,
@@ -56,6 +59,9 @@ export default class EmacsTextEditorPlugin extends Plugin implements PluginConte
 			cleanup => this.register(cleanup),
 		);
 		registerWorkspaceSingleChords(this, this.resolver);
+		const handles = registerPrefixCommands(this, this.resolver);
+		const cxPrefixMap = buildCxPrefixMap(handles);
+		this.prefixDispatcher = new PrefixDispatcher([cxPrefixMap], this.logger);
 		// Any mousedown anywhere cancels mark-mode and yank-pop session,
 		// matching emacs (where keyboardQuit does both) and Obsidian's
 		// own selection-cancel behavior. Cheap no-op when neither is active.
