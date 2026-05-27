@@ -23,3 +23,4 @@ data.json
 
 # Git worktrees (created by AI agent workflows)
 .worktrees
+.osgrep

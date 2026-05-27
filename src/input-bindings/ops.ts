@@ -1,31 +1,41 @@
 export type EditableElement = HTMLInputElement | HTMLTextAreaElement;
 
+// Emacs "point" — the active end of the selection. With a non-empty
+// selection the active end depends on selectionDirection; collapsed
+// selections have point === selectionStart === selectionEnd.
+export function pointOf(el: EditableElement): number {
+	const start = el.selectionStart ?? 0;
+	const end = el.selectionEnd ?? 0;
+	if (start === end) return start;
+	return el.selectionDirection === "backward" ? start : end;
+}
+
 export function forwardChar(el: EditableElement): void {
-	const pos = el.selectionStart ?? 0;
+	const pos = pointOf(el);
 	const next = Math.min(pos + 1, el.value.length);
 	el.setSelectionRange(next, next);
 }
 
 export function backwardChar(el: EditableElement): void {
-	const pos = el.selectionStart ?? 0;
+	const pos = pointOf(el);
 	const next = Math.max(pos - 1, 0);
 	el.setSelectionRange(next, next);
 }
 
 export function forwardWord(el: EditableElement): void {
-	const pos = el.selectionStart ?? 0;
+	const pos = pointOf(el);
 	const next = nextWordBoundary(el.value, pos, 1);
 	el.setSelectionRange(next, next);
 }
 
 export function backwardWord(el: EditableElement): void {
-	const pos = el.selectionStart ?? 0;
+	const pos = pointOf(el);
 	const next = nextWordBoundary(el.value, pos, -1);
 	el.setSelectionRange(next, next);
 }
 
 export function beginningOfLine(el: EditableElement): void {
-	const pos = el.selectionStart ?? 0;
+	const pos = pointOf(el);
 	if (el instanceof HTMLInputElement) {
 		el.setSelectionRange(0, 0);
 		return;
@@ -35,7 +45,7 @@ export function beginningOfLine(el: EditableElement): void {
 }
 
 export function endOfLine(el: EditableElement): void {
-	const pos = el.selectionStart ?? 0;
+	const pos = pointOf(el);
 	if (el instanceof HTMLInputElement) {
 		el.setSelectionRange(el.value.length, el.value.length);
 		return;
@@ -49,7 +59,7 @@ export function nextLine(el: EditableElement): void {
 	if (el instanceof HTMLInputElement) {
 		return;
 	}
-	const pos = el.selectionStart ?? 0;
+	const pos = pointOf(el);
 	const lineStart = el.value.lastIndexOf("\n", pos - 1) + 1;
 	const column = pos - lineStart;
 	const nextLineStart = el.value.indexOf("\n", pos);
@@ -67,7 +77,7 @@ export function previousLine(el: EditableElement): void {
 	if (el instanceof HTMLInputElement) {
 		return;
 	}
-	const pos = el.selectionStart ?? 0;
+	const pos = pointOf(el);
 	const lineStart = el.value.lastIndexOf("\n", pos - 1) + 1;
 	if (lineStart === 0) {
 		return;
