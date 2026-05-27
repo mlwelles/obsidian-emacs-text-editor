@@ -1,25 +1,25 @@
 /**
- * Layer-2 operations for contenteditable elements.
+ * Layer 2 emacs/readline operations for contenteditable elements.
  *
- * Uses the modern Selection + Range APIs:
- *   - Selection.modify("move"|"extend", direction, granularity) for cursor
- *     movement and selection extension.
- *   - Range.deleteContents() for removal.
- *   - Range.insertNode() for insertion.
- *   - Synthetic InputEvent("input", {inputType, ...}) dispatched after every
- *     mutation, matching the input-events spec
- *     (https://w3c.github.io/input-events/).
+ * Uses the modern non-deprecated stack:
+ * - Selection.modify(alter, direction, granularity) for cursor movement
+ *   and selection extension. Baseline since 2020.
+ * - Range.deleteContents() for removal.
+ * - Range.insertNode(document.createTextNode(text)) for insertion.
+ * - Synthetic InputEvent("input", {inputType, data?, bubbles: true})
+ *   dispatched after each mutation for host notification.
  *
- * Notably absent: document.execCommand. It is deprecated and forbidden here.
+ * NO document.execCommand anywhere - it's deprecated.
  *
- * Tests for this module are largely deferred to manual regression in
- * Obsidian. jsdom does not implement Selection.modify; testing the
- * cursor-movement paths in jsdom would require mocking, which mostly
- * verifies that we call the API rather than that we use it correctly.
- * Manual smoke testing in Electron is more informative. A handful of tests
- * that exercise APIs jsdom does support (Selection.toString,
- * Range.deleteContents, Range.insertNode) ride along in the *.test.ts
- * sibling file.
+ * Selection.modify-driven paths are spy-verified in tests; full behavior
+ * is verified by manual regression in Electron (jsdom does not implement
+ * Selection.modify). Range-API paths (kill-region, yank, kill-ring-save,
+ * get-selected-text) are exercised end-to-end in jsdom.
+ *
+ * Known cost: native browser undo (Cmd-Z) does NOT include our DOM
+ * mutations. Users requiring undo should use C-_ / C-/ (Obsidian's
+ * command system) or rely on host-managed undo (e.g., file rename has
+ * its own undo mechanism via Obsidian's vault API).
  */
 
 type Direction = "forward" | "backward" | "left" | "right";
@@ -42,13 +42,24 @@ function getActiveSelection(el: HTMLElement): SelectionWithModify | null {
 	const win = el.ownerDocument?.defaultView ?? window;
 	const sel = win.getSelection() as SelectionWithModify | null;
 	if (!sel || sel.rangeCount === 0) return null;
-	// Only act if the selection is anchored within this element.
+	// Both endpoints must be inside `el`. If the user starts a selection
+	// inside the editable and drags out into a sibling, anchorNode stays
+	// inside but focusNode escapes; acting on such a selection would
+	// mutate DOM outside our target element.
 	const anchor = sel.anchorNode;
 	if (!anchor || !el.contains(anchor)) return null;
+	const focus = sel.focusNode;
+	if (!focus || !el.contains(focus)) return null;
 	return sel;
 }
 
-function dispatchInput(el: HTMLElement, inputType: string, data?: string): void {
+/**
+ * Dispatch a synthetic InputEvent on `el`. Named `fireInputEvent` (not
+ * `dispatchInput`) to avoid collision with the router's `dispatchInput`
+ * function in `./index.ts`, which serves a different purpose (routing
+ * commands to operations for input/textarea elements).
+ */
+function fireInputEvent(el: HTMLElement, inputType: string, data?: string): void {
 	const init: InputEventInit = {inputType, bubbles: true};
 	if (data !== undefined) init.data = data;
 	el.dispatchEvent(new InputEvent("input", init));
@@ -124,8 +135,12 @@ export function deleteChar(el: HTMLElement): void {
 	if (sel.isCollapsed) {
 		sel.modify("extend", "right", "character");
 	}
+	// If the caret was at the end of the editable, modify() was a no-op
+	// and the selection is still collapsed. Bail before firing a synthetic
+	// input event that would mislead Obsidian's modification trackers.
+	if (sel.isCollapsed) return;
 	deleteSelectionRanges(sel);
-	dispatchInput(el, "deleteContentForward");
+	fireInputEvent(el, "deleteContentForward");
 }
 
 export function killWord(el: HTMLElement): string {
@@ -136,7 +151,7 @@ export function killWord(el: HTMLElement): string {
 	}
 	const text = sel.toString();
 	deleteSelectionRanges(sel);
-	dispatchInput(el, "deleteWordForward");
+	fireInputEvent(el, "deleteWordForward");
 	return text;
 }
 
@@ -148,7 +163,7 @@ export function backwardKillWord(el: HTMLElement): string {
 	}
 	const text = sel.toString();
 	deleteSelectionRanges(sel);
-	dispatchInput(el, "deleteWordBackward");
+	fireInputEvent(el, "deleteWordBackward");
 	return text;
 }
 
@@ -167,7 +182,7 @@ export function killLine(el: HTMLElement): string {
 	const text = sel.toString();
 	if (!text) return "";
 	deleteSelectionRanges(sel);
-	dispatchInput(el, "deleteSoftLineForward");
+	fireInputEvent(el, "deleteSoftLineForward");
 	return text;
 }
 
@@ -177,7 +192,7 @@ export function killRegion(el: HTMLElement): string {
 	const text = sel.toString();
 	if (!text) return "";
 	deleteSelectionRanges(sel);
-	dispatchInput(el, "deleteContentBackward");
+	fireInputEvent(el, "deleteContentBackward");
 	return text;
 }
 
@@ -204,7 +219,7 @@ export function yank(el: HTMLElement, text: string): void {
 	range.setEndAfter(node);
 	sel.removeAllRanges();
 	sel.addRange(range);
-	dispatchInput(el, "insertText", text);
+	fireInputEvent(el, "insertText", text);
 }
 
 // ---------- inspection ----------

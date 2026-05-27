@@ -98,6 +98,31 @@ describe("getSelectedText", () => {
 		selectWholeNode(outside, outside.firstChild as Text, 0, 1);
 		expect(getSelectedText(el)).toBe("");
 	});
+
+	it("returns empty string when selection anchors inside el but focus is outside", () => {
+		// Simulates a user starting a selection inside the contenteditable
+		// and dragging out into a sibling: anchorNode is still inside el
+		// but focusNode escapes. We must not act on this selection -
+		// range.deleteContents() would mutate DOM outside el.
+		const el = makeEditable("inside");
+		const sibling = document.createElement("div");
+		sibling.textContent = "outside";
+		document.body.appendChild(sibling);
+
+		const range = document.createRange();
+		range.setStart(el.firstChild as Text, 0);
+		range.setEnd(sibling.firstChild as Text, 3);
+		const sel = window.getSelection();
+		if (!sel) throw new Error("no selection");
+		sel.removeAllRanges();
+		sel.addRange(range);
+
+		// Sanity: anchor is inside el, focus is in sibling.
+		expect(el.contains(sel.anchorNode)).toBe(true);
+		expect(el.contains(sel.focusNode)).toBe(false);
+
+		expect(getSelectedText(el)).toBe("");
+	});
 });
 
 describe("killRegion", () => {
@@ -125,6 +150,34 @@ describe("killRegion", () => {
 		const killed = killRegion(el);
 
 		expect(killed).toBe("");
+		expect(events).toHaveLength(0);
+	});
+
+	it("does not delete or mutate sibling DOM when selection focus is outside el", () => {
+		// Without the focusNode guard, killRegion would call
+		// range.deleteContents() on a range that spans into a sibling,
+		// destroying content outside el.
+		const el = makeEditable("inside");
+		const sibling = document.createElement("div");
+		sibling.textContent = "outside";
+		document.body.appendChild(sibling);
+
+		const range = document.createRange();
+		range.setStart(el.firstChild as Text, 0);
+		range.setEnd(sibling.firstChild as Text, 7);
+		const sel = window.getSelection();
+		if (!sel) throw new Error("no selection");
+		sel.removeAllRanges();
+		sel.addRange(range);
+
+		const events: InputEvent[] = [];
+		el.addEventListener("input", e => events.push(e as InputEvent));
+
+		const killed = killRegion(el);
+
+		expect(killed).toBe("");
+		expect(el.textContent).toBe("inside");
+		expect(sibling.textContent).toBe("outside");
 		expect(events).toHaveLength(0);
 	});
 });
@@ -263,8 +316,28 @@ describe("extendSelection", () => {
 });
 
 describe("deletion ops (Selection.modify-based)", () => {
-	it("deleteChar dispatches deleteContentForward", () => {
+	it("deleteChar dispatches deleteContentForward when selection is non-collapsed after extend", () => {
 		const el = makeEditable("hello");
+		// Pre-extend a selection so toString() yields something even
+		// though our stub modify is a no-op. This simulates the case
+		// where Selection.modify successfully extended the selection.
+		const textNode = el.firstChild as Text;
+		selectWholeNode(el, textNode, 2, 3);
+		const events: InputEvent[] = [];
+		el.addEventListener("input", e => events.push(e as InputEvent));
+
+		deleteChar(el);
+
+		// Selection started non-collapsed so modify() is not called.
+		expect(events).toHaveLength(1);
+		expect(events[0].inputType).toBe("deleteContentForward");
+	});
+
+	it("deleteChar is a no-op when selection stays collapsed (e.g., caret at end-of-editable)", () => {
+		const el = makeEditable("hello");
+		// Stubbed modify is a no-op, so the collapsed selection at offset
+		// 2 stays collapsed - simulating cursor-at-end-of-editable in
+		// Electron where there's nothing to delete forward.
 		collapseTo(el, el.firstChild as Text, 2);
 		const events: InputEvent[] = [];
 		el.addEventListener("input", e => events.push(e as InputEvent));
@@ -272,8 +345,9 @@ describe("deletion ops (Selection.modify-based)", () => {
 		deleteChar(el);
 
 		expect(modifySpy).toHaveBeenCalledWith("extend", "right", "character");
-		expect(events).toHaveLength(1);
-		expect(events[0].inputType).toBe("deleteContentForward");
+		// No input event because nothing was deleted; downstream listeners
+		// must not be misled into thinking a deletion happened.
+		expect(events).toHaveLength(0);
 	});
 
 	it("killWord dispatches deleteWordForward and returns text from current selection", () => {
