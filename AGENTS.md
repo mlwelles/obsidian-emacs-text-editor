@@ -135,26 +135,47 @@ Update this table when adding, removing, or changing soft deps. The README's "Op
   - `MarkState` (4 tests): lifecycle, set-replaces-origin
   - `RepeatDetector` (4 tests): isRepeat semantics, last-id tracking
   - Logger (3 tests): prefix, predicate gating, predicate re-evaluation
+- Layer 2 (in-input bindings, 0.6.0+):
+  - `PluginDetector` (7 tests): isEnabled, subscribe, dispose, multi-subscriber
+  - `CommandResolver` (4 tests): resolve preferred/fallback/none, watch transitions
+  - `classifyElement` (11 tests): input types, textarea, contenteditable, .cm-editor descendant skip
+  - `ops` (32 tests): movement, kill, region for HTMLInputElement / HTMLTextAreaElement
+  - `contenteditable-ops` (23+ tests): mutation paths end-to-end in jsdom; movement paths spy-verified (jsdom lacks `Selection.modify`, so semantic correctness verified manually in Electron)
 
 CI runs the full suite plus typecheck and build on every push and PR to main.
 
 ### Manual regression (host-required)
 
-Obsidian-coupled code (editor-ops, command callbacks, in-input bindings when they land) has no automated coverage — Obsidian plugins are notoriously hard to test outside the host. Manual regression script at `docs/plans/MANUAL-TESTING.md` covers every command in the test vault.
+Obsidian-coupled code (router, ContentEditable semantics, command callbacks) requires manual regression in the host since jsdom can't exercise `Selection.modify` and Obsidian itself is not headless. Manual regression script at `docs/plans/MANUAL-TESTING.md`.
 
-For changes touching layer 2 (in-input bindings, planned for 0.6.0+), the surface checklist:
+#### Layer 2 surface status (verified 2026-05-08)
 
-- Search bar (left sidebar)
-- Quick switcher (Cmd-O / Cmd-P)
-- Command palette
-- File rename dialog (right-click → Rename)
-- Settings text inputs (any plugin's settings panel)
-- Frontmatter property editor
-- A modal from a plugin (e.g., QuickAdd capture)
+| Surface | Element kind | Status |
+|---|---|---|
+| Search bar (left sidebar) | input | working (verified) |
+| Quick switcher (Cmd-O) | input | working (verified) |
+| Command palette (Cmd-P) | input | working (verified) |
+| QuickAdd modal text inputs | input | working (verified) |
+| Settings text inputs | input | working (verified) |
+| Inline title editor (`<div class="inline-title" contenteditable>`) | contenteditable | working (verified) |
+| File rename dialog | contenteditable (presumed) | working (verified) |
+| Breadcrumb path filename | contenteditable (presumed) | working (verified) |
+| New-note modal filename | contenteditable (presumed) | working (verified) |
+| Project navigator sidebar | mixed (input + contenteditable) | working (verified) |
+| Frontmatter property editor | contenteditable | not yet exercised; expected to work via contenteditable path |
+| Markdown editor (Layer 1, `.cm-editor`) | CodeMirror | unchanged; Layer 2 listener correctly skips `.cm-editor` descendants |
 
-For each, verify: C-f/b/n/p, C-a/e, M-f/b, C-d, C-k, M-d, M-Backspace, C-Space + movement + C-w/M-w, C-y, C-g.
+For each Layer 2 surface, verify: C-f/b/n/p, C-a/e, M-f/b, C-d, C-k, M-d, M-Backspace, C-Space + movement + C-w/M-w, C-y, M-y, C-g.
 
-Layer 1 regression check: open a markdown note, exercise the same bindings, confirm no behavior change versus the previous release.
+Cross-layer kill-ring smoke test: kill text in the markdown editor with `M-d`, focus into the inline title editor or a search bar, press `C-y` — the killed text should appear. Verifies the shared kill ring crosses layers.
+
+Layer 1 regression check: open a markdown note, exercise the same bindings, confirm no behavior change versus 0.5.1.
+
+#### Known Layer 2 limitations
+
+- **`Selection.modify` granularity gotchas in contenteditable.** Cursor movement by word in contenteditable uses the host's notion of word boundaries (Unicode-aware in Chromium). May differ slightly from Layer 1's CodeMirror word boundaries or from Layer 2's input/textarea regex-based boundaries (which are `\w`-only, ASCII).
+- **Native browser undo (Cmd-Z) does NOT include our contenteditable DOM mutations.** Yank into contenteditable cannot be undone via Cmd-Z. Users requiring undo should use the host's own undo (e.g., the inline title editor's host-managed rename history) or rely on plugin-specific undo. Cost of using non-deprecated `Range.insertNode` / `Range.deleteContents` instead of the deprecated `document.execCommand`.
+- **Mark state shared between input/textarea and contenteditable.** The mark's `{line, ch}` offset is meaningless when crossing element kinds; users who set the mark in an input then focus a contenteditable should press `C-g` to reset. Documented design wart in the feature implementation plan.
 
 ## Known Limitations
 

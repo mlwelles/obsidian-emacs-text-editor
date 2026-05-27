@@ -17,6 +17,9 @@ import {cancelYankPop, type KillContext} from "./editor-ops/editing";
 import {PluginDetector} from "./soft-deps/plugin-detector";
 import {CommandResolver} from "./soft-deps/command-resolver";
 import {installInputBindings} from "./input-bindings";
+import {registerWorkspaceSingleChords} from "./workspace-bindings/single-chord";
+import {PrefixDispatcher} from "./prefix-maps/dispatcher";
+import {registerPrefixCommands, buildCxPrefixMap} from "./prefix-maps/bindings";
 
 export default class EmacsTextEditorPlugin extends Plugin implements PluginContext {
 	// toggle to enable debug logging
@@ -31,6 +34,7 @@ export default class EmacsTextEditorPlugin extends Plugin implements PluginConte
 	private readonly inputRepeats = new RepeatDetector();
 	private detector!: PluginDetector;
 	private resolver!: CommandResolver;
+	private prefixDispatcher!: PrefixDispatcher;
 	readonly killCtx: KillContext = {
 		killRing: this.killRing,
 		mark: this.mark,
@@ -44,6 +48,10 @@ export default class EmacsTextEditorPlugin extends Plugin implements PluginConte
 		console.log("loading plugin: Emacs text editor");
 		this.detector = new PluginDetector(this.app);
 		this.resolver = new CommandResolver(this.detector);
+		registerWorkspaceSingleChords(this, this.resolver);
+		const handles = registerPrefixCommands(this, this.resolver);
+		const cxPrefixMap = buildCxPrefixMap(handles);
+		this.prefixDispatcher = new PrefixDispatcher([cxPrefixMap], this.logger);
 		installInputBindings(
 			document,
 			{
@@ -51,6 +59,7 @@ export default class EmacsTextEditorPlugin extends Plugin implements PluginConte
 				mark: this.mark,
 				repeats: this.inputRepeats,
 				logger: this.logger,
+				prefixDispatcher: this.prefixDispatcher,
 			},
 			cleanup => this.register(cleanup),
 		);
