@@ -11,6 +11,7 @@ export interface InputBindingsContext {
 	mark: MarkState;
 	repeats: RepeatDetector;
 	logger: Logger;
+	prefixDispatcher?: {handle(event: KeyboardEvent): boolean};
 }
 
 const ID = {
@@ -78,6 +79,13 @@ export function installInputBindings(
 	registerCleanup: (cleanup: () => void) => void,
 ): void {
 	const handler = (event: KeyboardEvent) => {
+		// Multi-chord prefix dispatcher (C-x ...). Runs BEFORE element
+		// classification so C-x bindings fire regardless of focus context.
+		if (ctx.prefixDispatcher?.handle(event)) {
+			event.preventDefault();
+			event.stopPropagation();
+			return;
+		}
 		const kind = classifyElement(event.target as Element | null);
 		// Layer 1 owns the markdown editor (cm-editor descendants); they are
 		// classified as Skip by the element filter.

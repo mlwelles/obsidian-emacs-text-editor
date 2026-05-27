@@ -48,6 +48,10 @@ export default class EmacsTextEditorPlugin extends Plugin implements PluginConte
 		console.log("loading plugin: Emacs text editor");
 		this.detector = new PluginDetector(this.app);
 		this.resolver = new CommandResolver(this.detector);
+		registerWorkspaceSingleChords(this, this.resolver);
+		const handles = registerPrefixCommands(this, this.resolver);
+		const cxPrefixMap = buildCxPrefixMap(handles);
+		this.prefixDispatcher = new PrefixDispatcher([cxPrefixMap], this.logger);
 		installInputBindings(
 			document,
 			{
@@ -55,13 +59,10 @@ export default class EmacsTextEditorPlugin extends Plugin implements PluginConte
 				mark: this.mark,
 				repeats: this.inputRepeats,
 				logger: this.logger,
+				prefixDispatcher: this.prefixDispatcher,
 			},
 			cleanup => this.register(cleanup),
 		);
-		registerWorkspaceSingleChords(this, this.resolver);
-		const handles = registerPrefixCommands(this, this.resolver);
-		const cxPrefixMap = buildCxPrefixMap(handles);
-		this.prefixDispatcher = new PrefixDispatcher([cxPrefixMap], this.logger);
 		// Any mousedown anywhere cancels mark-mode and yank-pop session,
 		// matching emacs (where keyboardQuit does both) and Obsidian's
 		// own selection-cancel behavior. Cheap no-op when neither is active.
