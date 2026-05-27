@@ -17,6 +17,7 @@ import {cancelYankPop, type KillContext} from "./editor-ops/editing";
 import {PluginDetector} from "./soft-deps/plugin-detector";
 import {CommandResolver} from "./soft-deps/command-resolver";
 import {installInputBindings} from "./input-bindings";
+import {registerWorkspaceSingleChords} from "./workspace-bindings/single-chord";
 
 export default class EmacsTextEditorPlugin extends Plugin implements PluginContext {
 	// toggle to enable debug logging
@@ -54,6 +55,7 @@ export default class EmacsTextEditorPlugin extends Plugin implements PluginConte
 			},
 			cleanup => this.register(cleanup),
 		);
+		registerWorkspaceSingleChords(this, this.resolver);
 		// Any mousedown anywhere cancels mark-mode and yank-pop session,
 		// matching emacs (where keyboardQuit does both) and Obsidian's
 		// own selection-cancel behavior. Cheap no-op when neither is active.
